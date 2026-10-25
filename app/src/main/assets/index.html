@@ -49,6 +49,18 @@ button:focus-visible{outline:2px dashed var(--paper);outline-offset:4px}
 .shots button.on{background:var(--paper);color:var(--ink);transform:translate(2px,2px);box-shadow:1px 1px 0 var(--paper)}
 .r{display:flex;align-items:center;gap:12px}
 #pause{pointer-events:auto;width:42px;padding:8px 0}
+.tbar{display:flex;gap:10px;flex-wrap:wrap;pointer-events:auto;padding-top:6px}
+.tg{display:flex;gap:6px}
+.tbar button{font-size:10px;padding:6px 7px;box-shadow:2px 2px 0 var(--paper)}
+#meter{display:flex;flex-direction:column;gap:4px}
+.track{position:relative;height:18px;border:2px solid var(--paper);background:var(--ink)}
+.track .zone{position:absolute;top:0;bottom:0;background:repeating-conic-gradient(var(--paper) 0 25%,var(--ink) 0 50%) 0 0/4px 4px}
+.track .perfect{position:absolute;top:0;bottom:0;background:var(--paper)}
+.track .mid{position:absolute;top:-6px;bottom:-6px;left:50%;width:2px;margin-left:-1px;background:var(--paper)}
+#pin{position:absolute;top:-8px;bottom:-8px;width:6px;margin-left:-3px;background:var(--ink);border:2px solid var(--paper)}
+.mrow{display:flex;justify-content:space-between;align-items:baseline;gap:8px;font-size:16px;color:var(--mute);text-transform:uppercase}
+#mText{font-family:var(--display);font-size:13px;color:var(--paper);font-weight:700;letter-spacing:.06em}
+#play{flex:2}
 
 /* flash */
 #flash{position:absolute;left:0;right:0;top:38%;text-align:center;pointer-events:none;opacity:0}
@@ -100,10 +112,19 @@ button:focus-visible{outline:2px dashed var(--paper);outline-offset:4px}
     <div class="row"><div id="score">0/0</div><div class="r"><div id="overs">0.0 / 5 OV</div><button id="pause" aria-label="Pause">II</button></div></div>
     <div class="row"><div id="need">NEED 0</div><div id="bowler">PACE</div></div>
     <div id="balls"></div>
+    <div id="tbar" class="tbar" hidden>
+      <div class="tg" id="tType"><button data-v="pace" aria-pressed="true">PACE</button><button data-v="spin" aria-pressed="false">SPIN</button></div>
+      <div class="tg" id="tSpd"><button data-v="0.7" aria-pressed="false">SLOW</button><button data-v="0.85" aria-pressed="true">MED</button><button data-v="1" aria-pressed="false">FAST</button></div>
+      <button id="tGuide" aria-pressed="true">GUIDE</button>
+    </div>
   </header>
 
   <footer id="ctrl" class="pad" hidden>
     <div id="hint">Hit as the ball arrives</div>
+    <div id="meter">
+      <div class="track"><div class="zone" id="mZone"></div><div class="perfect" id="mPerf"></div><div class="mid"></div><div id="pin" hidden></div></div>
+      <div class="mrow"><span>Early</span><b id="mText">Hit in the white</b><span>Late</span></div>
+    </div>
     <div class="shots">
       <button data-shot="def"><b>[ ]</b>DEFEND</button>
       <button data-shot="left"><b>&lt;&lt;</b>DRIVE L</button>
@@ -136,13 +157,13 @@ button:focus-visible{outline:2px dashed var(--paper);outline-offset:4px}
       <div class="seg"><span class="eyebrow">Bowling</span><div id="dfSeg">
         <button data-v="easy" aria-pressed="false">Easy</button><button data-v="normal" aria-pressed="true">Normal</button><button data-v="hard" aria-pressed="false">Hard</button></div></div>
     </div>
-    <button id="play" class="big">PLAY AT <span id="playName">LORD'S</span></button>
-    <p class="how">Press a shot button as the ball reaches your batter: Defend, Drive left, Loft or Drive right. <span id="sRec"></span></p>
+    <div class="actions"><button id="play" class="big">PLAY AT <span id="playName">LORD'S</span></button><button id="train">TRAINING</button></div>
+    <p class="how">Press a shot button as the ball reaches your batter: Defend, Drive left, Loft or Drive right. Training gives endless balls and a timing meter. <span id="sRec"></span></p>
   </section>
 
   <section id="pausesheet" class="sheet pad" hidden>
     <h2>PAUSED</h2>
-    <div class="actions"><button id="resume" class="big">RESUME</button><button id="quit">QUIT MATCH</button></div>
+    <div class="actions"><button id="resume" class="big">RESUME</button><button id="quit">QUIT</button></div>
   </section>
 
   <section id="endsheet" class="sheet pad" hidden>
@@ -164,7 +185,7 @@ button:focus-visible{outline:2px dashed var(--paper);outline-offset:4px}
 const $ = id => document.getElementById(id);
 const cv = $('cv'), app = $('app');
 const ctx = cv.getContext('2d', { willReadFrequently: true });
-const TAU = Math.PI * 2, G = 9.8, YC = 8.6;
+const TAU = Math.PI * 2, G = 9.8, YC = 8.0;
 const rand = (a, b) => a + Math.random() * (b - a);
 const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
 const hyp = Math.hypot;
@@ -419,6 +440,15 @@ function render() {
     for (let a = 0; a < 12; a++) { const t = a / 12 * TAU; ctx.fillRect(sx + Math.round(Math.cos(t) * r), sy + Math.round(Math.sin(t) * r), 1, 1); }
     ctx.fillRect(sx, sy, 1, 1);
   }
+  if (M && M.training && del && state !== 'menu' && state !== 'end') {
+    const half = Math.max(.5, del.speed * .05), y0 = Y(YC - half), y1 = Y(YC + half);
+    ctx.fillStyle = '#000';
+    for (const gx of [-2.1, 2.1]) { const sx = X(gx); ctx.fillRect(sx, y0, 1, y1 - y0 + 1); const d = gx < 0 ? 1 : -2; ctx.fillRect(sx + Math.min(0, d), y0, 2, 1); ctx.fillRect(sx + Math.min(0, d), y1, 2, 1); }
+    if (M.guide && state === 'delivery' && Math.abs(dT - del.tc) < .07) {
+      const sx = X(batters.s.x), sy = Y(batters.s.y), r = Math.max(4, Math.round(1.5 * cam.s));
+      for (let a = 0; a < 24; a++) { const t = a / 24 * TAU; ctx.fillRect(sx + Math.round(Math.cos(t) * r), sy + Math.round(Math.sin(t) * r), 2, 2); }
+    }
+  }
   // people, sorted by y
   const ppl = [];
   for (const f of fielders) ppl.push({ y: f.y, d: () => drawFielder(f) });
@@ -474,7 +504,7 @@ function setupField() {
   bowler = mkF(0.9, -24, 'bowler'); fielders.push(bowler);
   setHomes();
 }
-function setHomes() { const spin = M && M.over % 2 === 1; keeper.hy = spin ? 11.7 : 15; }
+function setHomes() { const spin = M && (M.training ? M.tSpin : M.over % 2 === 1); keeper.hy = spin ? 11.7 : 15; }
 function moveToward(f, tx, ty, step) {
   const dx = tx - f.x, dy = ty - f.y, d = hyp(dx, dy);
   if (d <= step || d < 1e-6) { f.x = tx; f.y = ty; return true; }
@@ -483,8 +513,8 @@ function moveToward(f, tx, ty, step) {
 
 /* ---------------- delivery ---------------- */
 function makeDelivery() {
-  const D = DIFF[opts.diff], spin = M.over % 2 === 1;
-  const speed = (spin ? rand(13, 15.5) : rand(18.5, 22.5) * st.pace) * D.speed;
+  const D = DIFF[opts.diff], spin = M.training ? M.tSpin : M.over % 2 === 1;
+  const speed = (spin ? rand(13, 15.5) : rand(18.5, 22.5) * st.pace) * (M.training ? M.tSpeed : D.speed);
   const r = Math.random();
   const py = spin ? rand(2.5, 6.8) : r < .15 ? rand(-1.5, 1.5) : r < .75 ? rand(2, 6) : r < .92 ? rand(6, 7.8) : rand(8.1, 8.5);
   const px = rand(-0.35, 0.6);
@@ -498,8 +528,9 @@ function makeDelivery() {
 function newBall() {
   state = 'runup'; stateT = 0; shot = null; play = null; keeperBall = false;
   stumpsDown.top = stumpsDown.bot = 0;
-  if (M.balls % 6 === 0) M.thisOver = [];
-  del = makeDelivery(); ball = null;
+  if (M.balls % 6 === 0 && !M.training) M.thisOver = [];
+  del = makeDelivery();
+  setMeter(); ball = null;
   bowler.x = .9; bowler.y = -24;
   Object.assign(batters.s, { x: -.45, y: 8.9, sw: 0 }); Object.assign(batters.n, { x: .65, y: -9.4 });
   for (const f of fielders) { if (f.role !== 'bowler') { f.x = f.hx; f.y = f.hy; } f.go = false; }
@@ -526,17 +557,19 @@ function stepDelivery(dt) {
   keeper.x += (clamp(b.x, -1.5, 1.8) - keeper.x) * Math.min(1, dt * 6);
   if (shot && !shot.done) {
     const err = shot.ts - del.tc;
-    if (err < -D.win) { shot.done = true; hint('Too early'); }
-    else if (err <= 0) { if (dT >= del.tc) { shot.done = true; resolveShot(1 + err / D.win, -1); } }
-    else { shot.done = true; if (b.y < 10.0) resolveShot(1 - err / Math.max(.18, del.ts - del.tc + .12), 1); else hint('Too late'); }
+    const lateW = (10.25 - YC) / del.speed;
+    if (err < -D.win) { shot.done = true; hint('Too early'); judge(err, 'miss'); }
+    else if (err <= 0) { if (dT >= del.tc) { shot.done = true; judge(err, 'hit'); resolveShot(1 + err / D.win, -1); } }
+    else { shot.done = true; if (b.y < 10.25) { judge(err, 'hit'); resolveShot(1 - err / lateW, 1); } else { hint('Too late'); judge(err, 'miss'); } }
     if (state !== 'delivery') return;
   }
   if (!del.passed && b.y >= 10.06) {
     del.passed = true;
-    if (Math.abs(b.x) < .14 && b.z < .72) { breakStumps(10.06); outBall(Math.random() < .35 ? 'LBW' : 'BOWLED', ''); return; }
+    if (Math.abs(b.x) < .14 && b.z < .72) { if (!shot) judge(null, 'none'); breakStumps(10.06); outBall(Math.random() < .35 ? 'LBW' : 'BOWLED', ''); return; }
   }
   if (b.y >= keeper.y - .3) {
     b.x = keeper.x; b.y = keeper.y; b.z = .5; keeperBall = true;
+    if (!shot) judge(null, 'none');
     if (shot && shot.done && !shot.hit && shot.tried) hint('Beaten'); else if (!shot) hint('Left alone');
     scoreBall(0, '·'); endBall(1.0);
   }
@@ -701,17 +734,48 @@ function stepPlay(dt) {
   }
 }
 
+/* ---------------- training ---------------- */
+const MRANGE = .45;
+function setMeter() {
+  const D = DIFF[opts.diff], lateW = Math.min(MRANGE, (10.25 - YC) / del.speed), e = Math.min(MRANGE, D.win);
+  const pct = v => 50 + v / MRANGE * 50;
+  Object.assign(el('mZone').style, { left: pct(-e) + '%', width: (pct(lateW) - pct(-e)) + '%' });
+  Object.assign(el('mPerf').style, { left: pct(-.05) + '%', width: (pct(.05) - pct(-.05)) + '%' });
+}
+function judge(err, kind) {
+  if (!M) return;
+  const T = M.training;
+  let label, sym;
+  if (kind === 'none') { label = 'No shot'; sym = '-'; el('pin').hidden = true; }
+  else {
+    const ms = Math.round(Math.abs(err) * 1000);
+    if (Math.abs(err) <= .05) { label = 'Perfect'; sym = 'P'; }
+    else if (kind === 'hit') { label = `${err < 0 ? 'Early' : 'Late'} ${ms} ms`; sym = err < 0 ? 'E' : 'L'; }
+    else { label = `${err < 0 ? 'Way early' : 'Too late'} ${ms} ms`; sym = 'X'; }
+    el('pin').hidden = false; el('pin').style.left = (50 + clamp(err / MRANGE, -1, 1) * 50) + '%';
+  }
+  el('mText').textContent = label;
+  if (sym === 'P') tone(1320, .08, 'square', .05);
+  if (T) {
+    M.tn++; if (sym === 'P') { M.tp++; M.streak++; } else M.streak = 0;
+    M.best = Math.max(M.best, M.streak);
+    M.thisOver.push(sym); if (M.thisOver.length > 8) M.thisOver.shift();
+    hud();
+  }
+}
+
 /* ---------------- scoring ---------------- */
 function scoreBall(r, sym) {
-  M.score += r; M.balls++; M.thisOver.push(sym); hud();
+  M.score += r; M.balls++; if (!M.training) M.thisOver.push(sym); hud();
 }
 function outBall(how, sub) {
-  M.wk++; M.balls++; M.thisOver.push('W');
+  M.wk++; M.balls++; if (!M.training) M.thisOver.push('W');
   sfx.out(); flash(how, sub || `${M.score}/${M.wk}`); hud(); endBall(1.9);
 }
 function endBall(delay) { state = 'after'; stateT = 0; play && (play.done = true); afterDelay = delay; }
 let afterDelay = 1.2;
 function nextOrEnd() {
+  if (M.training) return newBall();
   const tot = M.overs * 6;
   if (M.score >= M.target) return endMatch('win');
   if (M.wk >= 10 || M.balls >= tot) return endMatch(M.score === M.target - 1 ? 'tie' : 'lose');
@@ -725,11 +789,17 @@ function hud() {
   if (!M) return;
   const tot = M.overs * 6, left = tot - M.balls, need = M.target - M.score;
   el('score').textContent = `${M.score}/${M.wk}`;
-  el('overs').textContent = `${Math.floor(M.balls / 6)}.${M.balls % 6} / ${M.overs} OV`;
-  el('need').textContent = need > 0 ? `NEED ${need} FROM ${left}` : 'TARGET REACHED';
-  el('bowler').textContent = `${M.over % 2 ? 'Spin' : 'Pace'} · ${st.short || st.name}`;
+  if (M.training) {
+    el('overs').textContent = `TRAINING · BEST ${M.best}`;
+    el('need').textContent = `PERFECT ${M.tp}/${M.tn} · STREAK ${M.streak}`;
+    el('bowler').textContent = '';
+  } else {
+    el('overs').textContent = `${Math.floor(M.balls / 6)}.${M.balls % 6} / ${M.overs} OV`;
+    el('need').textContent = need > 0 ? `NEED ${need} FROM ${left}` : 'TARGET REACHED';
+    el('bowler').textContent = `${M.over % 2 ? 'Spin' : 'Pace'} · ${st.short || st.name}`;
+  }
   const box = el('balls'); box.innerHTML = '';
-  for (const s of M.thisOver) { const d = document.createElement('div'); d.className = 'b' + (s === 'W' ? ' w' : (s === '4' || s === '6') ? ' hit' : ''); d.textContent = s; box.appendChild(d); }
+  for (const s of M.thisOver) { const d = document.createElement('div'); d.className = 'b' + (s === 'W' ? ' w' : (s === '4' || s === '6' || s === 'P') ? ' hit' : ''); d.textContent = s; box.appendChild(d); }
 }
 function hint(t) { el('hint').textContent = t; }
 let flashTimer = 0;
@@ -741,14 +811,19 @@ function flash(big, sub) {
 /* ---------------- match flow ---------------- */
 function store() { try { return JSON.parse(localStorage.getItem('onebit-cricket-v1') || '{}'); } catch (e) { return {}; } }
 function save(s) { try { localStorage.setItem('onebit-cricket-v1', JSON.stringify(s)); } catch (e) {} }
-function startMatch() {
+function startMatch(training = false) {
   const balls = opts.overs * 6;
   const target = Math.round(balls * 1.32 * st.rate * DIFF[opts.diff].rate * rand(.92, 1.08)) + 1;
-  M = { score: 0, wk: 0, balls: 0, over: 0, overs: opts.overs, target, fours: 0, sixes: 0, thisOver: [] };
+  M = { score: 0, wk: 0, balls: 0, over: 0, overs: opts.overs, target, fours: 0, sixes: 0, thisOver: [],
+    training, tSpin: false, tSpeed: .85, guide: true, tn: 0, tp: 0, streak: 0, best: 0 };
   setupField();
   showScreen('game');
+  el('tbar').hidden = !training; el('meter').hidden = false;
+  el('mText').textContent = 'Hit in the white'; el('pin').hidden = true;
+  if (training) { pressOnly('tType', 'pace'); pressOnly('tSpd', '0.85'); el('tGuide').setAttribute('aria-pressed', 'true'); }
   hud(); hint('Get ready');
-  flash(`CHASE ${target}`, `${opts.overs} overs at ${st.short || st.name}`);
+  if (training) flash('TRAINING', 'Press as the ball reaches the bat');
+  else flash(`CHASE ${target}`, `${opts.overs} overs at ${st.short || st.name}`);
   state = 'intro'; stateT = 0;
 }
 function endMatch(res) {
@@ -793,7 +868,12 @@ segInit('ovSeg', 'overs', Number); segInit('dfSeg', 'diff', String);
 el('prev').onclick = () => pickStadium(sIdx - 1);
 el('next').onclick = () => pickStadium(sIdx + 1);
 el('play').onclick = () => { unlockAudio(); startMatch(); };
-el('again').onclick = () => startMatch();
+el('train').onclick = () => { unlockAudio(); startMatch(true); };
+function pressOnly(id, v) { el(id).querySelectorAll('button').forEach(x => x.setAttribute('aria-pressed', String(x.dataset.v === v))); }
+el('tType').addEventListener('click', e => { const b = e.target.closest('button'); if (!b || !M) return; M.tSpin = b.dataset.v === 'spin'; pressOnly('tType', b.dataset.v); setHomes(); });
+el('tSpd').addEventListener('click', e => { const b = e.target.closest('button'); if (!b || !M) return; M.tSpeed = Number(b.dataset.v); pressOnly('tSpd', b.dataset.v); });
+el('tGuide').onclick = () => { if (!M) return; M.guide = !M.guide; el('tGuide').setAttribute('aria-pressed', String(M.guide)); };
+el('again').onclick = () => startMatch(false);
 el('grounds').onclick = () => { state = 'menu'; M = null; ball = null; setupField(); showScreen('menu'); pickStadium(sIdx); };
 el('pause').onclick = () => setPaused(true);
 el('resume').onclick = () => setPaused(false);
@@ -827,6 +907,7 @@ function measure() {
   cam.oy = (t + H - b) / 2; cam.visH = Math.max(40, H - t - b);
 }
 function camTarget() {
+  if (M && M.training && state !== 'end') return { x: 0, y: 0, s: Math.min(cam.visH / 58, W / 34), k: 6 };
   const s = Math.min(W / (2 * (st.rx + 7)), cam.visH / (2 * (st.ry + 7)));
   return { x: 0, y: 0, s, k: 6 };
 }
