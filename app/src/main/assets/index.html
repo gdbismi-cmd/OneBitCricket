@@ -458,16 +458,6 @@ function render() {
       for (let a = 0; a < 24; a++) { const t = a / 24 * TAU; ctx.fillRect(sx + Math.round(Math.cos(t) * r), sy + Math.round(Math.sin(t) * r), 2, 2); }
     }
   }
-  if (aim.on && M && aim.p > .05) {
-    const bx = batters.s.x, by = batters.s.y - .6, L = aim.p < DEF_BELOW ? 3 : 8 + 52 * aim.p;
-    const ex = bx + Math.cos(aim.a) * L, ey = by + Math.sin(aim.a) * L;
-    const n = Math.max(4, Math.round(L * cam.s / 3));
-    ctx.fillStyle = '#000';
-    for (let i = 1; i <= n; i++) { const u = i / n; ctx.fillRect(X(bx + (ex - bx) * u), Y(by + (ey - by) * u), 2, 2); }
-    const sx = X(ex), sy = Y(ey);
-    if (aim.p >= LOFT_AT) { disc(sx, sy, 5, '#000'); disc(sx, sy, 3, '#fff'); disc(sx, sy, 1, '#000'); }
-    else { ctx.fillRect(sx - 2, sy - 2, 5, 5); }
-  }
   // people, sorted by y
   const ppl = [];
   for (const f of fielders) ppl.push({ y: f.y, d: () => drawFielder(f) });
@@ -514,14 +504,61 @@ function mkF(x, y, role = 'f') {
   return { x, y, hx: x, hy: y, role, tx: x, ty: y, go: false,
     react: role === 'keeper' ? .1 : .3, speed: role === 'keeper' ? sp * .8 : sp, reach: role === 'keeper' ? 1.3 : 1.0 };
 }
+const SECT = 16, SW = TAU / SECT;
+const normA = a => { while (a > Math.PI) a -= TAU; while (a <= -Math.PI) a += TAU; return a; };
+const secCen = k => -Math.PI + (k + .5) * SW;
+const secOf = rel => Math.floor((normA(rel) + Math.PI) / SW) % SECT;
+function relName(rel) {
+  const d = Math.abs(rel) * 180 / Math.PI, off = rel > 0;
+  if (d < 35) return off ? 'long off' : 'long on';
+  if (d < 70) return off ? 'extra cover' : 'midwicket';
+  if (d < 110) return off ? 'point' : 'square leg';
+  return off ? 'third man' : 'fine leg';
+}
+function rayEdge(a) { let t = 10; while (t < 220 && inField(Math.cos(a) * t, 8.9 + Math.sin(a) * t)) t += 1; return t; }
 function setupField() {
-  const inner = [[21, 7], [20, -8], [9, -21], [-9, -21], [-21, -5], [-20, 11]];
-  const deep = [[-0.45, 0.9], [-0.35, -0.94], [0.82, -0.57]];
-  fielders = inner.map(p => mkF(p[0], p[1]));
-  for (const d of deep) { const e = edgeDir(d[0], d[1]); fielders.push(mkF(e[0] * .88, e[1] * .88)); }
+  fielders = [];
+  for (let i = 0; i < 9; i++) fielders.push(mkF(0, 0));
   keeper = mkF(0.2, 15, 'keeper'); fielders.push(keeper);
   bowler = mkF(0.9, -24, 'bowler'); fielders.push(bowler);
+  planField(true);
   setHomes();
+}
+function planField(first) {
+  const heat = M && M.heat ? M.heat : new Array(SECT).fill(0);
+  const pick = (score, n, sep) => {
+    const order = [...Array(SECT).keys()].sort((a, b) => score[b] - score[a]), out = [];
+    for (const k of order) { if (out.every(o => { const d = Math.abs(o - k); return Math.min(d, SECT - d) >= sep; })) out.push(k); if (out.length === n) break; }
+    return out;
+  };
+  const dS = [], iS = [];
+  for (let k = 0; k < SECT; k++) {
+    const ar = Math.abs(secCen(k));
+    dS[k] = (ar < .8 ? 1 : ar < 1.9 ? .75 : .35) + 1.7 * heat[k] + rand(0, .4);
+    iS[k] = (ar < 2 ? .8 : .55) + 1.0 * heat[k] + rand(0, .5);
+  }
+  const deep = pick(dS, 4, 2), inner = pick(iS, 5, 2), slots = [];
+  for (const k of deep) { const rel = secCen(k) + rand(-.1, .1), a = rel - Math.PI / 2, t = rayEdge(a) - rand(4, 8); slots.push([Math.cos(a) * t, 8.9 + Math.sin(a) * t]); }
+  for (const k of inner) { const rel = secCen(k) + rand(-.12, .12), a = rel - Math.PI / 2, r = Math.abs(rel) > 1.9 ? rand(13, 17) : rand(19, 25); slots.push([Math.cos(a) * r, 8.9 + Math.sin(a) * r]); }
+  const free = fielders.filter(f => f.role === 'f');
+  for (const [x, y] of slots) {
+    let bi = 0, bd = Infinity;
+    free.forEach((f, i) => { const d = hyp(f.x - x, f.y - y); if (d < bd) { bd = d; bi = i; } });
+    const f = free.splice(bi, 1)[0]; f.hx = x; f.hy = y; if (first) { f.x = x; f.y = y; }
+  }
+  // announce when the captain plugs your favourite zone
+  if (M) {
+    let hk = 0; for (let k = 1; k < SECT; k++) if (heat[k] > heat[hk]) hk = k;
+    const covered = deep.some(k => { const d = Math.abs(k - hk); return Math.min(d, SECT - d) <= 1; });
+    M.fieldMsg = heat[hk] > 1.4 && covered && M.lastHot !== hk ? `Field moved: deep ${relName(secCen(hk))}` : '';
+    if (M.fieldMsg) M.lastHot = hk;
+  }
+}
+function recordHit(vx, vy, w) {
+  if (!M) return;
+  const k = secOf(Math.atan2(vy, vx) + Math.PI / 2);
+  M.heat[k] += w; M.heat[(k + 1) % SECT] += w * .45; M.heat[(k + SECT - 1) % SECT] += w * .45;
+  M.lastSec = k;
 }
 function setHomes() { const spin = M && (M.training ? M.tSpin : M.over % 2 === 1); keeper.hy = spin ? 11.7 : 15; }
 function moveToward(f, tx, ty, step) {
@@ -552,8 +589,9 @@ function newBall() {
   setMeter(); ball = null;
   bowler.x = .9; bowler.y = -24;
   Object.assign(batters.s, { x: -.45, y: 8.9, sw: 0 }); Object.assign(batters.n, { x: .65, y: -9.4 });
-  for (const f of fielders) { if (f.role !== 'bowler') { f.x = f.hx; f.y = f.hy; } f.go = false; }
-  hint(M.balls < 6 ? 'Pull back, release on time' : (del.spin ? 'Spinner on' : 'Quick on'));
+  for (const f of fielders) { if (f.role === 'keeper') { f.x = f.hx; f.y = f.hy; } f.go = false; }
+  hint(M.fieldMsg || (M.balls < 6 ? 'Pull back, release on time' : (del.spin ? 'Spinner on' : 'Quick on')));
+  M.fieldMsg = '';
   hud();
 }
 const RUNUP = 1.25;
@@ -691,6 +729,7 @@ function predict(sim) {
   return fieldedAt(sim, best.f, pts.length - 1, { tOverride: Math.max(best.t, last.t) });
 }
 function launch(x, y, z, vx, vy, vz) {
+  recordHit(vx, vy, 1 + (hyp(vx, vy) > 20 ? .8 : 0) + (vz > 5 ? .5 : 0));
   const sim = simulate(x, y, z, vx, vy, vz), o = predict(sim);
   const pts = sim.pts;
   play = { sim, o, t: 0, phase: 'flight', done: false, msgDrop: false, runCap: 0, dropT: o.drop ? pts[o.drop.i].t : -1 };
@@ -734,6 +773,7 @@ function stepPlay(dt) {
       } else if (o.type === 'boundary') {
         Pl.phase = 'dead'; Pl.runCap = Math.min(Pl.runCap, p);
         const r = o.six ? 6 : 4; if (r === 6) M.sixes++; else M.fours++;
+        if (M.lastSec >= 0) M.heat[M.lastSec] += r === 6 ? 2 : 1.4;
         celebrate = 2; (r === 6 ? sfx.six : sfx.four)();
         flash(r === 6 ? 'SIX!' : 'FOUR!', r === 6 ? Math.round(hyp(pts[o.i].x, pts[o.i].y - 8.9)) + ' m' : 'Into the rope');
         scoreBall(r, String(r)); endBall(1.8);
@@ -794,7 +834,11 @@ function outBall(how, sub) {
   M.wk++; M.balls++; if (!M.training) M.thisOver.push('W');
   sfx.out(); flash(how, sub || `${M.score}/${M.wk}`); hud(); endBall(1.9);
 }
-function endBall(delay) { state = 'after'; stateT = 0; play && (play.done = true); afterDelay = delay; }
+function endBall(delay) {
+  state = 'after'; stateT = 0; play && (play.done = true); afterDelay = delay;
+  for (let k = 0; k < SECT; k++) M.heat[k] *= .78;
+  planField(false);
+}
 let afterDelay = 1.2;
 function nextOrEnd() {
   if (M.training) return newBall();
@@ -837,6 +881,7 @@ function startMatch(training = false) {
   const balls = opts.overs * 6;
   const target = Math.round(balls * 1.32 * st.rate * DIFF[opts.diff].rate * rand(.92, 1.08)) + 1;
   M = { score: 0, wk: 0, balls: 0, over: 0, overs: opts.overs, target, fours: 0, sixes: 0, thisOver: [],
+    heat: new Array(SECT).fill(0), lastHot: -1, fieldMsg: '', lastSec: -1,
     training, tSpin: false, tSpeed: .85, guide: true, tn: 0, tp: 0, streak: 0, best: 0 };
   setupField();
   showScreen('game');
@@ -961,6 +1006,7 @@ function update(dt) {
   for (const p of parts) { p.vz -= G * dt; p.x += p.vx * dt; p.y += p.vy * dt; p.z = Math.max(0, p.z + p.vz * dt); if (p.z === 0) { p.vx *= .8; p.vy *= .8; } p.life -= dt; }
   parts = parts.filter(p => p.life > 0);
   if (batters.s.sw > 0) batters.s.sw = Math.max(0, batters.s.sw - dt);
+  if (state === 'runup' || state === 'delivery' || state === 'intro') for (const f of fielders) if (f.role === 'f') moveToward(f, f.hx, f.hy, 11 * dt);
   if (state === 'intro' && stateT > 1.9) newBall();
   else if (state === 'runup') {
     const u = clamp(stateT / RUNUP, 0, 1); bowler.x = .9 - .2 * u; bowler.y = -24 + (24 - 10.6) * u;
@@ -971,7 +1017,7 @@ function update(dt) {
     if (play && play.phase !== 'dead') stepPlay(dt);
     if (keeperBall) { ball.x = keeper.x; ball.y = keeper.y; }
     else if (play && play.o.type === 'catch') { ball.x = play.o.f.x; ball.y = play.o.f.y; ball.z = .6; }
-    if (stateT > afterDelay * .5) for (const f of fielders) if (f.role !== 'bowler') moveToward(f, f.hx, f.hy, 9 * dt);
+    if (stateT > afterDelay * .35) for (const f of fielders) if (f.role !== 'bowler') moveToward(f, f.hx, f.hy, 11 * dt);
     if (stateT > afterDelay) nextOrEnd();
   }
   if (state === 'menu') { /* idle */ }
