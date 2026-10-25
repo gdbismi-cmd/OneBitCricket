@@ -167,7 +167,7 @@ button:focus-visible{outline:2px dashed var(--paper);outline-offset:4px}
         <button data-v="easy" aria-pressed="false">Easy</button><button data-v="normal" aria-pressed="true">Normal</button><button data-v="hard" aria-pressed="false">Hard</button></div></div>
     </div>
     <div class="actions"><button id="play" class="big">PLAY AT <span id="playName">LORD'S</span></button><button id="train">TRAINING</button></div>
-    <p class="how">Pull the joystick away from where you want to hit and release as the ball arrives. Pull further for power; the outer ring lofts it; a tap defends. Training gives endless balls and a timing meter. <span id="sRec"></span></p>
+    <p class="how">Pull the joystick away from where you want to hit and release as the ball arrives. Pull further for power; the outer ring goes for a loft, but it only reliably goes up off a well-timed half-volley or short ball; yank it to the rim and it may stay down or fly off the top edge. A tap defends. Training gives endless balls and a timing meter. <span id="sRec"></span></p>
   </section>
 
   <section id="pausesheet" class="sheet pad" hidden>
@@ -643,22 +643,42 @@ function triggerShot(a, power) {
   const kind = power < DEF_BELOW ? 'def' : power >= LOFT_AT ? 'loft' : 'drive';
   shot = { kind, a, power, def: kind === 'def', ts: dT, done: false, tried: true, hit: false };
 }
+// A full pull asks for a loft, but whether the ball goes up depends on the
+// delivery and the timing: half-volleys and short balls are easy to get
+// under, good length and yorkers less so, and yanking the stick all the way
+// to the rim overhits it. Returns null (lofted), 'down' or 'skied'.
+function loftMiss(q, b) {
+  const py = del.py;
+  let c = py > 8 ? .4 : py > 6 ? 1 : py < 2 ? .85 : .7;
+  if (del.spin) c = Math.min(1, c + .12);
+  c *= .35 + .65 * q;
+  if (shot.power > .96) c *= .82;
+  if (b.z > 1.3) c *= .7;
+  if (Math.random() < c) return null;
+  return b.z > 1.1 || q < .55 || Math.random() < .3 ? 'skied' : 'down';
+}
 function resolveShot(q, side) {
   q = .3 + .7 * clamp(q, 0, 1);
   const b = ball, k = shot.kind, up = -Math.PI / 2;
   if (b.x < -1.6 || b.x > 1.9 || b.z > 2.6) { hint('Beaten'); return; }
   let a = shot.a + rand(-.08, .08);
   if (side < 0) a -= .5 * (1 - q); else a += .4 * (1 - q);
-  let hs, vz, z0 = .3;
+  let hs, vz, z0 = .3, fail = null;
   const Pd = clamp((shot.power - DEF_BELOW) / (LOFT_AT - DEF_BELOW), 0, 1), Pl = clamp((shot.power - LOFT_AT) / (1 - LOFT_AT), 0, 1);
   if (k === 'def') { hs = 3 + 5 * q; vz = 0; a = up + rand(-.6, .6); }
   else if (side > 0 && q < .5 && b.x > -.1 && Math.random() < .4) { a = Math.PI / 2 - rand(.1, .5); hs = del.speed * rand(.45, .65); vz = rand(.5, 2.2); z0 = .6; }
+  else if (k === 'loft' && (fail = loftMiss(q, b))) {
+    // went for the big one but didn't get under it
+    if (fail === 'skied') { hs = rand(6, 11); vz = rand(12, 16); z0 = 1; a += rand(-.5, .5); }
+    else { hs = (16 + 10 * Pl) * (.45 + .55 * q); vz = rand(0, 1.5); }
+  }
   else if (k === 'loft') { hs = (15 + 12 * Pl) * (.45 + .55 * q); vz = (10 + 5 * Pl) * (.6 + .4 * q); z0 = .8; if (q < .45) { vz *= 1.2; hs *= .75; } }
   else { hs = (7 + 22 * Pd) * (.4 + .6 * q) + .2 * del.speed * q; vz = q < .45 ? rand(1, 3) : 0; }
   shot.hit = true;
   batters.s.sw = .24; batters.s.sa = a;
   sfx.hit(q);
-  if (q > .88 && k !== 'def') hint('Middled it'); else if (q < .45) hint('Mistimed');
+  if (fail === 'skied') hint('Top edge, skied it'); else if (fail) hint('Kept it down');
+  else if (q > .88 && k !== 'def') hint('Middled it'); else if (q < .45) hint('Mistimed');
   launch(b.x, b.y, z0, Math.cos(a) * hs, Math.sin(a) * hs, vz);
 }
 function simulate(x, y, z, vx, vy, vz) {
