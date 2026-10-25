@@ -11,8 +11,12 @@ jobs:
         with: { distribution: temurin, java-version: '17' }
       - uses: gradle/actions/setup-gradle@v4
         with: { gradle-version: '8.7' }
-      - run: gradle :app:assembleRelease
+      - run: gradle :app:assembleRelease :aquarium:assembleRelease
       - uses: actions/upload-artifact@v4
         with:
           name: OneBitCricket-apk
           path: app/build/outputs/apk/release/*.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AquariumWallpaper-apk
+          path: aquarium/build/outputs/apk/release/*.apk

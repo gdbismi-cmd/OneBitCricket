@@ -15,3 +15,14 @@ on every push; download it from the run's *Artifacts* section under the Actions 
 
 The release build is signed with the debug key, so it installs directly (allow "Install unknown apps"),
 but it isn't suitable for the Play Store without your own signing key.
+
+## Aquarium live wallpaper
+
+The `aquarium` module is a separate app: an animated reef-tank live wallpaper drawn with Android's Canvas
+(`aquarium/src/main/java/com/onebit/aquarium/Aquarium.java`). Swaying plants, light rays, a bubbler, a
+jellyfish, a neon-tetra school and other fish swim on two parallax layers that slide as you swipe home-screen pages.
+Tap the home screen to drop food and the nearby fish will race over and eat it.
+
+Build it with `gradle :aquarium:assembleRelease` (the GitHub workflow uploads it as *AquariumWallpaper-apk*).
+After installing, open the **Aquarium** app icon to go straight to the wallpaper preview, then tap *Set wallpaper*.
+Animation pauses whenever the wallpaper isn't visible, so it doesn't drain the battery in the background.
