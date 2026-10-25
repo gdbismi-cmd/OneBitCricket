@@ -46,7 +46,16 @@ button:focus-visible{outline:2px dashed var(--paper);outline-offset:4px}
 .shots{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
 .shots button{padding:14px 0 12px;font-size:11px;display:flex;flex-direction:column;align-items:center;gap:8px;touch-action:manipulation;letter-spacing:.06em}
 .shots button b{font-size:20px;letter-spacing:0}
-.shots button.on{background:var(--paper);color:var(--ink);transform:translate(2px,2px);box-shadow:1px 1px 0 var(--paper)}
+.stickrow{display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);align-items:center;gap:10px}
+.sl,.sr{margin:0;font-size:16px;line-height:1.1;color:var(--mute);text-transform:uppercase}
+.sr{text-align:right}
+.sl b,.sr b{color:var(--paper);font-weight:400}
+#stick{position:relative;width:150px;height:150px;border-radius:50%;border:3px solid var(--paper);touch-action:none;cursor:grab;
+  background:radial-gradient(circle closest-side,var(--ink) 0 77%,var(--paper) 77% 79%,transparent 79%),repeating-conic-gradient(var(--paper) 0 25%,var(--ink) 0 50%) 0 0/4px 4px}
+#stick .dot{position:absolute;left:50%;top:50%;width:6px;height:6px;margin:-3px 0 0 -3px;background:var(--paper)}
+#knob{position:absolute;left:50%;top:50%;width:46px;height:46px;margin:-23px 0 0 -23px;border-radius:50%;background:var(--paper);border:3px solid var(--ink);box-shadow:0 0 0 3px var(--paper);pointer-events:none}
+#knob.loft{background:repeating-conic-gradient(var(--paper) 0 25%,var(--ink) 0 50%) 0 0/4px 4px}
+#stick:focus-visible{outline:2px dashed var(--paper);outline-offset:6px}
 .r{display:flex;align-items:center;gap:12px}
 #pause{pointer-events:auto;width:42px;padding:8px 0}
 .tbar{display:flex;gap:10px;flex-wrap:wrap;pointer-events:auto;padding-top:6px}
@@ -120,17 +129,17 @@ button:focus-visible{outline:2px dashed var(--paper);outline-offset:4px}
   </header>
 
   <footer id="ctrl" class="pad" hidden>
-    <div id="hint">Hit as the ball arrives</div>
+    <div id="hint">Pull back, release on time</div>
     <div id="meter">
       <div class="track"><div class="zone" id="mZone"></div><div class="perfect" id="mPerf"></div><div class="mid"></div><div id="pin" hidden></div></div>
       <div class="mrow"><span>Early</span><b id="mText">Hit in the white</b><span>Late</span></div>
     </div>
-    <div class="shots">
-      <button data-shot="def"><b>[ ]</b>DEFEND</button>
-      <button data-shot="left"><b>&lt;&lt;</b>DRIVE L</button>
-      <button data-shot="loft"><b>^^</b>LOFT</button>
-      <button data-shot="right"><b>&gt;&gt;</b>DRIVE R</button>
+    <div class="stickrow">
+      <p class="sl">Pull back<br><b>release</b><br>to hit</p>
+      <div id="stick" role="application" aria-label="Shot joystick: pull away from where you want to hit, release to play the shot"><div class="dot"></div><div id="knob"></div></div>
+      <p class="sr">Outer ring<br><b>loft</b><br>tap: <b>defend</b></p>
     </div>
+  </div>
   </footer>
 
   <div id="flash"><b id="fBig"></b><i id="fSub"></i></div>
@@ -158,7 +167,7 @@ button:focus-visible{outline:2px dashed var(--paper);outline-offset:4px}
         <button data-v="easy" aria-pressed="false">Easy</button><button data-v="normal" aria-pressed="true">Normal</button><button data-v="hard" aria-pressed="false">Hard</button></div></div>
     </div>
     <div class="actions"><button id="play" class="big">PLAY AT <span id="playName">LORD'S</span></button><button id="train">TRAINING</button></div>
-    <p class="how">Press a shot button as the ball reaches your batter: Defend, Drive left, Loft or Drive right. Training gives endless balls and a timing meter. <span id="sRec"></span></p>
+    <p class="how">Pull the joystick away from where you want to hit and release as the ball arrives. Pull further for power; the outer ring lofts it; a tap defends. Training gives endless balls and a timing meter. <span id="sRec"></span></p>
   </section>
 
   <section id="pausesheet" class="sheet pad" hidden>
@@ -449,6 +458,16 @@ function render() {
       for (let a = 0; a < 24; a++) { const t = a / 24 * TAU; ctx.fillRect(sx + Math.round(Math.cos(t) * r), sy + Math.round(Math.sin(t) * r), 2, 2); }
     }
   }
+  if (aim.on && M && aim.p > .05) {
+    const bx = batters.s.x, by = batters.s.y - .6, L = aim.p < DEF_BELOW ? 3 : 8 + 52 * aim.p;
+    const ex = bx + Math.cos(aim.a) * L, ey = by + Math.sin(aim.a) * L;
+    const n = Math.max(4, Math.round(L * cam.s / 3));
+    ctx.fillStyle = '#000';
+    for (let i = 1; i <= n; i++) { const u = i / n; ctx.fillRect(X(bx + (ex - bx) * u), Y(by + (ey - by) * u), 2, 2); }
+    const sx = X(ex), sy = Y(ey);
+    if (aim.p >= LOFT_AT) { disc(sx, sy, 5, '#000'); disc(sx, sy, 3, '#fff'); disc(sx, sy, 1, '#000'); }
+    else { ctx.fillRect(sx - 2, sy - 2, 5, 5); }
+  }
   // people, sorted by y
   const ppl = [];
   for (const f of fielders) ppl.push({ y: f.y, d: () => drawFielder(f) });
@@ -534,7 +553,7 @@ function newBall() {
   bowler.x = .9; bowler.y = -24;
   Object.assign(batters.s, { x: -.45, y: 8.9, sw: 0 }); Object.assign(batters.n, { x: .65, y: -9.4 });
   for (const f of fielders) { if (f.role !== 'bowler') { f.x = f.hx; f.y = f.hy; } f.go = false; }
-  hint(M.balls < 6 ? 'Hit as the ball arrives' : (del.spin ? 'Spinner on' : 'Quick on'));
+  hint(M.balls < 6 ? 'Pull back, release on time' : (del.spin ? 'Spinner on' : 'Quick on'));
   hud();
 }
 const RUNUP = 1.25;
@@ -580,21 +599,24 @@ function breakStumps(yy) {
 }
 
 /* ---------------- shots ---------------- */
-function triggerShot(kind) {
+const LOFT_AT = .78, DEF_BELOW = .16;
+function triggerShot(a, power) {
   if (state !== 'delivery' || shot) return;
-  shot = { kind, def: kind === 'def', ts: dT, done: false, tried: true, hit: false };
+  const kind = power < DEF_BELOW ? 'def' : power >= LOFT_AT ? 'loft' : 'drive';
+  shot = { kind, a, power, def: kind === 'def', ts: dT, done: false, tried: true, hit: false };
 }
 function resolveShot(q, side) {
   q = .3 + .7 * clamp(q, 0, 1);
   const b = ball, k = shot.kind, up = -Math.PI / 2;
   if (b.x < -1.6 || b.x > 1.9 || b.z > 2.6) { hint('Beaten'); return; }
-  let a = k === 'left' ? up - rand(.55, 1.05) : k === 'right' ? up + rand(.55, 1.05) : up + rand(-.45, .45);
+  let a = shot.a + rand(-.08, .08);
   if (side < 0) a -= .5 * (1 - q); else a += .4 * (1 - q);
   let hs, vz, z0 = .3;
+  const Pd = clamp((shot.power - DEF_BELOW) / (LOFT_AT - DEF_BELOW), 0, 1), Pl = clamp((shot.power - LOFT_AT) / (1 - LOFT_AT), 0, 1);
   if (k === 'def') { hs = 3 + 5 * q; vz = 0; a = up + rand(-.6, .6); }
   else if (side > 0 && q < .5 && b.x > -.1 && Math.random() < .4) { a = Math.PI / 2 - rand(.1, .5); hs = del.speed * rand(.45, .65); vz = rand(.5, 2.2); z0 = .6; }
-  else if (k === 'loft') { hs = 26 * (.45 + .55 * q); vz = 15 * (.6 + .4 * q); z0 = .8; if (q < .45) { vz *= 1.2; hs *= .75; } }
-  else { hs = 27 * (.4 + .6 * q) + .2 * del.speed * q; vz = q < .45 ? rand(1, 3) : 0; }
+  else if (k === 'loft') { hs = (15 + 12 * Pl) * (.45 + .55 * q); vz = (10 + 5 * Pl) * (.6 + .4 * q); z0 = .8; if (q < .45) { vz *= 1.2; hs *= .75; } }
+  else { hs = (7 + 22 * Pd) * (.4 + .6 * q) + .2 * del.speed * q; vz = q < .45 ? rand(1, 3) : 0; }
   shot.hit = true;
   batters.s.sw = .24; batters.s.sa = a;
   sfx.hit(q);
@@ -882,19 +904,42 @@ document.addEventListener('visibilitychange', () => { if (document.hidden && M &
 
 /* ---------------- input ---------------- */
 cv.addEventListener('pointerdown', unlockAudio);
-document.querySelectorAll('.shots button').forEach(btn => {
-  btn.addEventListener('pointerdown', e => {
-    e.preventDefault(); unlockAudio();
-    btn.classList.add('on'); setTimeout(() => btn.classList.remove('on'), 160);
-    if (!paused) triggerShot(btn.dataset.shot);
-  });
-  btn.addEventListener('click', e => e.preventDefault());
+const stick = el('stick'), knob = el('knob');
+const aim = { on: false, a: -Math.PI / 2, p: 0 };
+let stickId = null;
+function stickR() { return stick.clientWidth / 2 - 26; }
+function setKnob(dx, dy) {
+  knob.style.transform = `translate(${dx}px, ${dy}px)`;
+  knob.classList.toggle('loft', aim.p >= LOFT_AT);
+}
+function stickMove(e) {
+  const r = stick.getBoundingClientRect(), R = stickR();
+  let dx = e.clientX - (r.left + r.width / 2), dy = e.clientY - (r.top + r.height / 2);
+  const d = hyp(dx, dy); if (d > R) { dx *= R / d; dy *= R / d; }
+  aim.p = Math.min(1, d / R);
+  if (aim.p > .05) aim.a = Math.atan2(-dy, -dx);
+  setKnob(Math.round(dx), Math.round(dy));
+}
+stick.addEventListener('pointerdown', e => {
+  e.preventDefault(); unlockAudio();
+  if (!M || paused) return;
+  stickId = e.pointerId; aim.on = true; aim.p = 0;
+  try { stick.setPointerCapture(e.pointerId); } catch (_) {}
+  stickMove(e);
 });
-const KEYS = { ArrowLeft: 'left', ArrowRight: 'right', ArrowUp: 'loft', ArrowDown: 'def', ' ': 'def' };
+stick.addEventListener('pointermove', e => { if (e.pointerId === stickId) stickMove(e); });
+function stickEnd(e, fire) {
+  if (e.pointerId !== stickId) return;
+  stickId = null;
+  if (fire && M && !paused) triggerShot(aim.a, aim.p);
+  aim.on = false; aim.p = 0; setKnob(0, 0);
+}
+stick.addEventListener('pointerup', e => stickEnd(e, true));
+stick.addEventListener('pointercancel', e => stickEnd(e, false));
+const KEYS = { ArrowLeft: [-2.3, .6], ArrowRight: [-.85, .6], ArrowUp: [-Math.PI / 2, .95], ArrowDown: [-Math.PI / 2, 0], ' ': [-Math.PI / 2, 0] };
 document.addEventListener('keydown', e => {
   const k = KEYS[e.key]; if (!k || !M || paused) return;
-  e.preventDefault(); unlockAudio(); triggerShot(k);
-  const btn = document.querySelector(`.shots button[data-shot="${k}"]`); if (btn) { btn.classList.add('on'); setTimeout(() => btn.classList.remove('on'), 160); }
+  e.preventDefault(); unlockAudio(); triggerShot(k[0], k[1]);
 });
 
 /* ---------------- loop ---------------- */
