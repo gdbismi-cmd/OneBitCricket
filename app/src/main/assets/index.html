@@ -41,11 +41,14 @@ button:focus-visible{outline:2px dashed var(--paper);outline-offset:4px}
 .b{min-width:20px;height:20px;border:2px solid var(--paper);display:grid;place-items:center;font-family:var(--display);font-size:11px;padding:0 2px}
 .b.hit{background:var(--paper);color:var(--ink)}
 .b.w{background:var(--paper);color:var(--ink);outline:2px solid var(--paper);outline-offset:2px}
-#ctrl{position:absolute;bottom:0;left:0;right:0;background:var(--ink);border-top:3px solid var(--paper);padding-block:10px;display:flex;align-items:center;gap:12px}
-#loft{min-width:96px;display:flex;flex-direction:column;align-items:center;gap:4px}
-#loft span{font-size:10px;letter-spacing:.12em}
-#hint{flex:1;min-width:0;text-align:center;font-size:20px;text-transform:uppercase;letter-spacing:.04em}
-#pause{width:46px;padding:10px 0}
+#ctrl{position:absolute;bottom:0;left:0;right:0;background:var(--ink);border-top:3px solid var(--paper);padding-block:8px 14px;display:flex;flex-direction:column;gap:10px}
+#hint{text-align:center;font-size:20px;text-transform:uppercase;letter-spacing:.04em;min-height:22px}
+.shots{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
+.shots button{padding:14px 0 12px;font-size:11px;display:flex;flex-direction:column;align-items:center;gap:8px;touch-action:manipulation;letter-spacing:.06em}
+.shots button b{font-size:20px;letter-spacing:0}
+.shots button.on{background:var(--paper);color:var(--ink);transform:translate(2px,2px);box-shadow:1px 1px 0 var(--paper)}
+.r{display:flex;align-items:center;gap:12px}
+#pause{pointer-events:auto;width:42px;padding:8px 0}
 
 /* flash */
 #flash{position:absolute;left:0;right:0;top:38%;text-align:center;pointer-events:none;opacity:0}
@@ -94,15 +97,19 @@ button:focus-visible{outline:2px dashed var(--paper);outline-offset:4px}
   </div>
 
   <header id="hud" class="pad" hidden>
-    <div class="row"><div id="score">0/0</div><div id="overs">0.0 / 5 OV</div></div>
+    <div class="row"><div id="score">0/0</div><div class="r"><div id="overs">0.0 / 5 OV</div><button id="pause" aria-label="Pause">II</button></div></div>
     <div class="row"><div id="need">NEED 0</div><div id="bowler">PACE</div></div>
     <div id="balls"></div>
   </header>
 
   <footer id="ctrl" class="pad" hidden>
-    <button id="loft" aria-pressed="false">LOFT<span>OFF</span></button>
-    <div id="hint">Swipe to hit · tap to defend</div>
-    <button id="pause" aria-label="Pause">II</button>
+    <div id="hint">Hit as the ball arrives</div>
+    <div class="shots">
+      <button data-shot="def"><b>[ ]</b>DEFEND</button>
+      <button data-shot="left"><b>&lt;&lt;</b>DRIVE L</button>
+      <button data-shot="loft"><b>^^</b>LOFT</button>
+      <button data-shot="right"><b>&gt;&gt;</b>DRIVE R</button>
+    </div>
   </footer>
 
   <div id="flash"><b id="fBig"></b><i id="fSub"></i></div>
@@ -130,7 +137,7 @@ button:focus-visible{outline:2px dashed var(--paper);outline-offset:4px}
         <button data-v="easy" aria-pressed="false">Easy</button><button data-v="normal" aria-pressed="true">Normal</button><button data-v="hard" aria-pressed="false">Hard</button></div></div>
     </div>
     <button id="play" class="big">PLAY AT <span id="playName">LORD'S</span></button>
-    <p class="how">Swipe the way you want to hit as the ball arrives; faster swipe, harder shot. Tap to block. LOFT goes aerial. <span id="sRec"></span></p>
+    <p class="how">Press a shot button as the ball reaches your batter: Defend, Drive left, Loft or Drive right. <span id="sRec"></span></p>
   </section>
 
   <section id="pausesheet" class="sheet pad" hidden>
@@ -186,9 +193,9 @@ const STADIUMS = [
     note:'Small, hot and tight in the desert. Spinners grip the dry surface, but edges fly to the rope.' },
 ];
 const DIFF = {
-  easy:   { speed:.8,  win:.24, field:6.0, marker:true,  rate:.86 },
-  normal: { speed:1.0, win:.19, field:6.8, marker:true,  rate:1.0 },
-  hard:   { speed:1.15,win:.14, field:7.4, marker:false, rate:1.12 },
+  easy:   { speed:.8,  win:.4, field:6.0, marker:true,  rate:.86 },
+  normal: { speed:1.0, win:.32, field:6.8, marker:true,  rate:1.0 },
+  hard:   { speed:1.15,win:.24, field:7.4, marker:false, rate:1.12 },
 };
 
 /* ---------------- canvas + patterns ---------------- */
@@ -230,7 +237,7 @@ let state = 'menu', paused = false, stateT = 0, gT = 0;
 let M = null, del = null, ball = null, shot = null, play = null, dT = 0;
 let fielders = [], keeper = null, bowler = null;
 const batters = { s: { x: -0.45, y: 8.9, sw: 0, sa: 0 }, n: { x: 0.65, y: -9.4 } };
-let parts = [], celebrate = 0, loft = false, stumpsDown = { top: 0, bot: 0 }, keeperBall = false;
+let parts = [], celebrate = 0, stumpsDown = { top: 0, bot: 0 }, keeperBall = false;
 const cam = { x: 0, y: 0, s: 2, oy: 180, visH: 360 };
 
 /* ---------------- geometry ---------------- */
@@ -339,7 +346,7 @@ function featFront() {
 }
 
 /* ---------------- people ---------------- */
-function personR() { return Math.max(1, Math.round(0.34 * cam.s)); }
+function personR() { return Math.max(2, Math.round(0.34 * cam.s)); }
 function drawFielder(f) {
   const sx = X(f.x), sy = Y(f.y), r = personR();
   disc(sx, sy, r, '#000');
@@ -350,8 +357,8 @@ function drawBatter(b, withBat) {
   const sx = X(b.x), sy = Y(b.y), r = personR();
   disc(sx, sy, r + 1, '#000'); disc(sx, sy, r, '#fff'); if (r >= 3) disc(sx, sy, r - 2, '#000');
   if (withBat) {
-    let a = 1.2, L = 0.7;
-    if (b.sw > 0) { const u = 1 - b.sw / 0.24; a = b.sa + Math.PI * 0.9 * (1 - u) * (1 - u) - 0.2 * u; L = 0.95; }
+    let a = 1.2, L = Math.max(.7, 3 / cam.s);
+    if (b.sw > 0) { const u = 1 - b.sw / 0.24; a = b.sa + Math.PI * 0.9 * (1 - u) * (1 - u) - 0.2 * u; L = Math.max(.95, 4 / cam.s); }
     pline(sx, sy, sx + Math.round(Math.cos(a) * L * cam.s), sy + Math.round(Math.sin(a) * L * cam.s), '#000');
   }
 }
@@ -496,7 +503,7 @@ function newBall() {
   bowler.x = .9; bowler.y = -24;
   Object.assign(batters.s, { x: -.45, y: 8.9, sw: 0 }); Object.assign(batters.n, { x: .65, y: -9.4 });
   for (const f of fielders) { if (f.role !== 'bowler') { f.x = f.hx; f.y = f.hy; } f.go = false; }
-  hint(M.balls < 6 ? 'Swipe to hit · tap to defend' : (del.spin ? 'Spinner on' : 'Quick on'));
+  hint(M.balls < 6 ? 'Hit as the ball arrives' : (del.spin ? 'Spinner on' : 'Quick on'));
   hud();
 }
 const RUNUP = 1.25;
@@ -521,7 +528,7 @@ function stepDelivery(dt) {
     const err = shot.ts - del.tc;
     if (err < -D.win) { shot.done = true; hint('Too early'); }
     else if (err <= 0) { if (dT >= del.tc) { shot.done = true; resolveShot(1 + err / D.win, -1); } }
-    else { shot.done = true; if (b.y < 9.95) resolveShot(1 - err / Math.max(.05, del.ts - del.tc + .02), 1); else hint('Too late'); }
+    else { shot.done = true; if (b.y < 10.0) resolveShot(1 - err / Math.max(.18, del.ts - del.tc + .12), 1); else hint('Too late'); }
     if (state !== 'delivery') return;
   }
   if (!del.passed && b.y >= 10.06) {
@@ -540,26 +547,25 @@ function breakStumps(yy) {
 }
 
 /* ---------------- shots ---------------- */
-function triggerShot(dx, dy, power, def) {
+function triggerShot(kind) {
   if (state !== 'delivery' || shot) return;
-  shot = { dx, dy, power, def, loft: loft && !def, ts: dT, done: false, tried: true, hit: false };
+  shot = { kind, def: kind === 'def', ts: dT, done: false, tried: true, hit: false };
 }
 function resolveShot(q, side) {
-  q = clamp(q, 0, 1);
-  const b = ball;
-  if (b.x < -1.3 || b.x > 1.6 || b.z > 2.4) { hint('Beaten'); return; }
-  let a = Math.atan2(shot.dy, shot.dx);
-  if (side < 0) a -= .75 * (1 - q); else a += .6 * (1 - q);
-  let hs, vz, z0 = .4;
-  const Pw = shot.power;
-  if (shot.def) { hs = 3 + 5 * q; vz = 0; z0 = .3; a = -Math.PI / 2 + rand(-.6, .6); }
-  else if (side > 0 && q < .45 && b.x > -.1 && Math.random() < .65) { a = Math.PI / 2 - rand(.1, .5); hs = del.speed * rand(.45, .65); vz = rand(.5, 2.2); z0 = .6; }
-  else if (shot.loft) { hs = (10 + 16 * Pw) * (.45 + .55 * q); vz = (7 + 8 * Pw) * (.6 + .4 * q); z0 = .8; if (q < .3) { vz *= 1.25; hs *= .7; } }
-  else { hs = (8 + 24 * Pw) * (.4 + .6 * q) + .2 * del.speed * q; vz = q < .3 ? rand(1, 3.5) : 0; z0 = .3; }
+  q = .3 + .7 * clamp(q, 0, 1);
+  const b = ball, k = shot.kind, up = -Math.PI / 2;
+  if (b.x < -1.6 || b.x > 1.9 || b.z > 2.6) { hint('Beaten'); return; }
+  let a = k === 'left' ? up - rand(.55, 1.05) : k === 'right' ? up + rand(.55, 1.05) : up + rand(-.45, .45);
+  if (side < 0) a -= .5 * (1 - q); else a += .4 * (1 - q);
+  let hs, vz, z0 = .3;
+  if (k === 'def') { hs = 3 + 5 * q; vz = 0; a = up + rand(-.6, .6); }
+  else if (side > 0 && q < .5 && b.x > -.1 && Math.random() < .4) { a = Math.PI / 2 - rand(.1, .5); hs = del.speed * rand(.45, .65); vz = rand(.5, 2.2); z0 = .6; }
+  else if (k === 'loft') { hs = 26 * (.45 + .55 * q); vz = 15 * (.6 + .4 * q); z0 = .8; if (q < .45) { vz *= 1.2; hs *= .75; } }
+  else { hs = 27 * (.4 + .6 * q) + .2 * del.speed * q; vz = q < .45 ? rand(1, 3) : 0; }
   shot.hit = true;
   batters.s.sw = .24; batters.s.sa = a;
   sfx.hit(q);
-  if (q > .85 && !shot.def) hint('Middled it'); else if (q < .35) hint('Mistimed');
+  if (q > .88 && k !== 'def') hint('Middled it'); else if (q < .45) hint('Mistimed');
   launch(b.x, b.y, z0, Math.cos(a) * hs, Math.sin(a) * hs, vz);
 }
 function simulate(x, y, z, vx, vy, vz) {
@@ -792,28 +798,24 @@ el('grounds').onclick = () => { state = 'menu'; M = null; ball = null; setupFiel
 el('pause').onclick = () => setPaused(true);
 el('resume').onclick = () => setPaused(false);
 el('quit').onclick = () => { paused = false; state = 'menu'; M = null; ball = null; showScreen('menu'); pickStadium(sIdx); };
-el('loft').onclick = () => { loft = !loft; el('loft').setAttribute('aria-pressed', String(loft)); el('loft').querySelector('span').textContent = loft ? 'ON' : 'OFF'; };
 document.addEventListener('visibilitychange', () => { if (document.hidden && M && state !== 'end') setPaused(true); });
 
 /* ---------------- input ---------------- */
-let sw = null;
-cv.addEventListener('pointerdown', e => {
-  unlockAudio();
-  if (!M || paused || (state !== 'delivery' && state !== 'runup')) return;
-  sw = { x: e.clientX, y: e.clientY, t: performance.now(), done: false };
-  try { cv.setPointerCapture(e.pointerId); } catch (_) {}
+cv.addEventListener('pointerdown', unlockAudio);
+document.querySelectorAll('.shots button').forEach(btn => {
+  btn.addEventListener('pointerdown', e => {
+    e.preventDefault(); unlockAudio();
+    btn.classList.add('on'); setTimeout(() => btn.classList.remove('on'), 160);
+    if (!paused) triggerShot(btn.dataset.shot);
+  });
+  btn.addEventListener('click', e => e.preventDefault());
 });
-cv.addEventListener('pointermove', e => {
-  if (!sw || sw.done) return;
-  const dx = e.clientX - sw.x, dy = e.clientY - sw.y, d = hyp(dx, dy);
-  if (d > 28) {
-    const v = d / Math.max(1, performance.now() - sw.t);
-    sw.done = true; triggerShot(dx / d, dy / d, clamp((v - .15) / 1.3, .15, 1), false);
-  }
+const KEYS = { ArrowLeft: 'left', ArrowRight: 'right', ArrowUp: 'loft', ArrowDown: 'def', ' ': 'def' };
+document.addEventListener('keydown', e => {
+  const k = KEYS[e.key]; if (!k || !M || paused) return;
+  e.preventDefault(); unlockAudio(); triggerShot(k);
+  const btn = document.querySelector(`.shots button[data-shot="${k}"]`); if (btn) { btn.classList.add('on'); setTimeout(() => btn.classList.remove('on'), 160); }
 });
-const endSwipe = () => { if (sw && !sw.done) triggerShot(0, -1, .1, true); sw = null; };
-cv.addEventListener('pointerup', endSwipe);
-cv.addEventListener('pointercancel', () => { sw = null; });
 
 /* ---------------- loop ---------------- */
 function measure() {
@@ -825,15 +827,8 @@ function measure() {
   cam.oy = (t + H - b) / 2; cam.visH = Math.max(40, H - t - b);
 }
 function camTarget() {
-  const full = Math.min(W / (2 * (st.rx + 34)), cam.visH / (2 * (st.ry + 34)));
-  const delS = Math.min(cam.visH / 31, W / 15);
-  if (state === 'menu' || state === 'end') return { x: 0, y: 0, s: full, k: 2 };
-  if (state === 'play' || (state === 'after' && play && stateT < .5)) {
-    const bx = ball.x, by = ball.y, d = hyp(bx, by - 2);
-    const s = clamp(Math.min(W, cam.visH) / (d * 1.5 + 30), full, delS);
-    return { x: bx * .8, y: by * .8 + 1, s, k: 3 };
-  }
-  return { x: 0, y: .5, s: delS, k: state === 'intro' ? 1.8 : 3.5 };
+  const s = Math.min(W / (2 * (st.rx + 7)), cam.visH / (2 * (st.ry + 7)));
+  return { x: 0, y: 0, s, k: 6 };
 }
 function update(dt) {
   stateT += dt; celebrate = Math.max(0, celebrate - dt);
@@ -866,9 +861,9 @@ function frame(now) {
   requestAnimationFrame(frame);
 }
 function resize() {
-  const r = app.getBoundingClientRect(), base = 172;
+  const r = app.getBoundingClientRect(), base = 288;
   if (r.width <= r.height) { W = base; H = Math.max(200, Math.round(base * r.height / Math.max(1, r.width))); }
-  else { H = 190; W = Math.round(190 * r.width / Math.max(1, r.height)); }
+  else { H = 300; W = Math.round(300 * r.width / Math.max(1, r.height)); }
   cv.width = W; cv.height = H;
 }
 window.addEventListener('resize', resize);
