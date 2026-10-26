@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Vesuvius Visitors</string>
+    <string name="author">OneBit</string>
+    <string name="description">Spaceships hover over Mount Vesuvius and the Bay of Naples. Live lava, ash plume, lightning, snow, clouds and a real day/night cycle.</string>
+    <string name="set_wallpaper">Set as live wallpaper</string>
+    <string name="set_wallpaper_summary">Open the system preview to apply it to your home and lock screen</string>
+    <string name="no_live_picker">Couldn\'t open the live wallpaper picker. Long-press your home screen and choose Wallpapers.</string>
+</resources>

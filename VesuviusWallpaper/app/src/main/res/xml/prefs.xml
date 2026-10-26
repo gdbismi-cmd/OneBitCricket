@@ -1,0 +1,145 @@
+<?xml version="1.0" encoding="utf-8"?>
+<PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto">
+
+    <Preference
+        android:key="set_wallpaper"
+        android:title="@string/set_wallpaper"
+        android:summary="@string/set_wallpaper_summary" />
+
+    <PreferenceCategory android:title="Time of day">
+        <ListPreference
+            android:key="time_mode"
+            android:title="Clock"
+            android:entries="@array/time_mode_names"
+            android:entryValues="@array/time_mode_values"
+            android:defaultValue="real"
+            android:summary="%s" />
+        <com.onebit.vesuvius.SliderPreference
+            android:key="fixed_hour"
+            android:title="Fixed time"
+            android:summary="Used when the clock is set to a fixed time"
+            android:defaultValue="76"
+            app:min="0" app:max="96" app:display="hour" />
+        <com.onebit.vesuvius.SliderPreference
+            android:key="cycle_minutes"
+            android:title="Length of a full day"
+            android:summary="Used by the fast day/night cycle"
+            android:defaultValue="10"
+            app:min="1" app:max="60" app:display="minutes" />
+    </PreferenceCategory>
+
+    <PreferenceCategory android:title="Volcano">
+        <com.onebit.vesuvius.SliderPreference
+            android:key="lava"
+            android:title="Lava flow"
+            android:summary="How far the glowing rivers run down the cone"
+            android:defaultValue="60"
+            app:min="0" app:max="100" app:display="percent" />
+        <com.onebit.vesuvius.SliderPreference
+            android:key="eruption"
+            android:title="Eruption"
+            android:summary="From a gentle steam wisp to an ash column with lava bombs"
+            android:defaultValue="45"
+            app:min="0" app:max="100" app:display="percent" />
+        <CheckBoxPreference
+            android:key="lightning"
+            android:title="Volcanic lightning"
+            android:summary="Flashes inside the ash plume during strong eruptions"
+            android:defaultValue="true" />
+        <CheckBoxPreference
+            android:key="tap_eruption"
+            android:title="Tap to erupt"
+            android:summary="Tapping the home screen triggers a burst of activity"
+            android:defaultValue="true" />
+    </PreferenceCategory>
+
+    <PreferenceCategory android:title="Weather">
+        <com.onebit.vesuvius.SliderPreference
+            android:key="snowfall"
+            android:title="Snowfall"
+            android:defaultValue="0"
+            app:min="0" app:max="100" app:display="percent" />
+        <com.onebit.vesuvius.SliderPreference
+            android:key="snow_cover"
+            android:title="Snow on the mountain"
+            android:defaultValue="25"
+            app:min="0" app:max="100" app:display="percent" />
+        <com.onebit.vesuvius.SliderPreference
+            android:key="clouds"
+            android:title="Clouds"
+            android:defaultValue="40"
+            app:min="0" app:max="100" app:display="percent" />
+        <com.onebit.vesuvius.SliderPreference
+            android:key="haze"
+            android:title="Haze and mist"
+            android:defaultValue="30"
+            app:min="0" app:max="100" app:display="percent" />
+        <com.onebit.vesuvius.SliderPreference
+            android:key="wind"
+            android:title="Wind"
+            android:summary="Bends the plume and drifts clouds and snow"
+            android:defaultValue="65"
+            app:min="0" app:max="100" app:display="wind" />
+        <CheckBoxPreference
+            android:key="stars"
+            android:title="Stars and Milky Way"
+            android:defaultValue="true" />
+        <com.onebit.vesuvius.SliderPreference
+            android:key="city_lights"
+            android:title="Town lights at night"
+            android:defaultValue="80"
+            app:min="0" app:max="100" app:display="percent" />
+    </PreferenceCategory>
+
+    <PreferenceCategory android:title="Spaceships">
+        <com.onebit.vesuvius.SliderPreference
+            android:key="ship_count"
+            android:title="Number of ships"
+            android:defaultValue="3"
+            app:min="0" app:max="6" app:display="count" />
+        <CheckBoxPreference
+            android:key="mothership"
+            android:title="Mothership"
+            android:summary="One of the ships is a huge carrier"
+            android:defaultValue="true" />
+        <com.onebit.vesuvius.SliderPreference
+            android:key="ship_speed"
+            android:title="Flight speed"
+            android:defaultValue="40"
+            app:min="0" app:max="100" app:display="percent" />
+        <CheckBoxPreference
+            android:key="beams"
+            android:title="Tractor beams"
+            android:summary="Saucers sometimes scan the volcano"
+            android:defaultValue="true" />
+        <CheckBoxPreference
+            android:key="nav_lights"
+            android:title="Navigation lights"
+            android:defaultValue="true" />
+    </PreferenceCategory>
+
+    <PreferenceCategory android:title="Display and battery">
+        <ListPreference
+            android:key="fps"
+            android:title="Frame rate"
+            android:entries="@array/fps_names"
+            android:entryValues="@array/fps_values"
+            android:defaultValue="30"
+            android:summary="%s" />
+        <com.onebit.vesuvius.SliderPreference
+            android:key="quality"
+            android:title="Render resolution"
+            android:summary="Lower values save battery on older phones"
+            android:defaultValue="70"
+            app:min="35" app:max="100" app:display="percent" />
+        <CheckBoxPreference
+            android:key="parallax"
+            android:title="Parallax scrolling"
+            android:summary="The scene pans as you swipe between home screens"
+            android:defaultValue="true" />
+        <Preference
+            android:key="reset"
+            android:title="Reset to defaults" />
+    </PreferenceCategory>
+</PreferenceScreen>
