@@ -2,6 +2,10 @@ name: Build Switch NRO
 on:
   push:
   workflow_dispatch:
+    inputs:
+      emulator_url:
+        description: Linux x64 tar.gz of a Switch emulator that can boot homebrew (e.g. a Ryubing release); runs the emulator test
+        required: false
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -19,8 +23,10 @@ jobs:
   # Boot the built .nro in Ryubing (Ryujinx) under a virtual display with
   # software Vulkan. The game reads autotest.txt from the emulated SD card,
   # plays itself and writes frames, an event log and a summary back there.
+  # Runs only when started by hand with an emulator download URL.
   emulator-test:
     needs: build
+    if: github.event_name == 'workflow_dispatch' && inputs.emulator_url != ''
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -30,26 +36,13 @@ jobs:
       - name: Install virtual display and software Vulkan
         run: |
           sudo apt-get update -q
-          sudo apt-get install -y -q xvfb mesa-vulkan-drivers libgl1-mesa-dri imagemagick netpbm jq
-      - name: Download Ryubing
+          sudo apt-get install -y -q xvfb mesa-vulkan-drivers libgl1-mesa-dri imagemagick netpbm
+      - name: Download the emulator
+        env:
+          EMULATOR_URL: ${{ inputs.emulator_url }}
         run: |
-          ua="Mozilla/5.0 (X11; Linux x86_64) OneBitCricket-CI"
-          url=""
-          # 1) Ryubing's GitLab releases API
-          if curl -fsSL -A "$ua" "https://git.ryujinx.app/api/v4/projects/ryubing%2Fryujinx/releases?per_page=5" -o releases.json; then
-            url=$(jq -r '[.[].assets.links[] | select(.name | test("linux_x64.*tar.gz$"))][0].url // empty' releases.json)
-          fi
-          # 2) the URL the Arch AUR packages download from
-          for pkg in ryujinx-bin ryujinx-canary-bin; do
-            [ -n "$url" ] && break
-            if curl -fsSL -A "$ua" "https://aur.archlinux.org/cgit/aur.git/plain/PKGBUILD?h=$pkg" -o PKGBUILD; then
-              url=$(bash -c 'CARCH=x86_64; source ./PKGBUILD >/dev/null 2>&1; for s in "${source_x86_64[@]}" "${source[@]}"; do echo "${s#*::}"; done' | grep -m1 'linux_x64.*tar.gz' || true)
-            fi
-          done
-          [ -n "$url" ] || { echo "Could not find a Ryubing Linux download"; exit 1; }
-          echo "Ryubing: $url"
-          curl -fsSL -A "$ua" "$url" -o ryujinx.tar.gz
-          mkdir emu && tar -xzf ryujinx.tar.gz -C emu
+          curl -fsSL "$EMULATOR_URL" -o emulator.tar.gz
+          mkdir emu && tar -xzf emulator.tar.gz -C emu
           find emu -maxdepth 3 -type f -name 'Ryujinx*' | head
       - name: Prepare emulated SD card
         run: |
