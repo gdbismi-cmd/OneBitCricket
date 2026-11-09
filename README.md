@@ -1,6 +1,6 @@
 # 1-Bit Cricket (Android + Nintendo Switch)
 
-Top-down, black-and-white pixel cricket. The whole game lives in `app/src/main/assets/index.html`
+Top-down pixel cricket, in colour or the original black and white (Look: Colour / 1-Bit in the menu). The whole game lives in `app/src/main/assets/index.html`
 and runs inside a full-screen WebView on Android. `switch/` holds a C++/SDL2 port for Nintendo Switch homebrew.
 
 ## Build the APK
