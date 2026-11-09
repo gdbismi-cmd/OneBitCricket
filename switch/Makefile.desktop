@@ -1,0 +1,4 @@
+# Desktop build of the Switch port, for testing without a console:
+#   make -f Makefile.desktop && ./onebit-cricket
+onebit-cricket: source/main.cpp source/font.h
+	$(CXX) -std=c++17 -O2 -Wall $< $(shell sdl2-config --cflags --libs) -o $@
