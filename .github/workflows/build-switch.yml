@@ -33,10 +33,22 @@ jobs:
           sudo apt-get install -y -q xvfb mesa-vulkan-drivers libgl1-mesa-dri imagemagick netpbm jq
       - name: Download Ryubing
         run: |
-          curl -fsSL "https://git.ryujinx.app/api/v4/projects/ryubing%2Fryujinx/releases?per_page=5" -o releases.json
-          url=$(jq -r '[.[].assets.links[] | select(.name | test("linux_x64.*tar.gz$"))][0].url' releases.json)
+          ua="Mozilla/5.0 (X11; Linux x86_64) OneBitCricket-CI"
+          url=""
+          # 1) Ryubing's GitLab releases API
+          if curl -fsSL -A "$ua" "https://git.ryujinx.app/api/v4/projects/ryubing%2Fryujinx/releases?per_page=5" -o releases.json; then
+            url=$(jq -r '[.[].assets.links[] | select(.name | test("linux_x64.*tar.gz$"))][0].url // empty' releases.json)
+          fi
+          # 2) the URL the Arch AUR packages download from
+          for pkg in ryujinx-bin ryujinx-canary-bin; do
+            [ -n "$url" ] && break
+            if curl -fsSL -A "$ua" "https://aur.archlinux.org/cgit/aur.git/plain/PKGBUILD?h=$pkg" -o PKGBUILD; then
+              url=$(bash -c 'CARCH=x86_64; source ./PKGBUILD >/dev/null 2>&1; for s in "${source_x86_64[@]}" "${source[@]}"; do echo "${s#*::}"; done' | grep -m1 'linux_x64.*tar.gz' || true)
+            fi
+          done
+          [ -n "$url" ] || { echo "Could not find a Ryubing Linux download"; exit 1; }
           echo "Ryubing: $url"
-          curl -fsSL "$url" -o ryujinx.tar.gz
+          curl -fsSL -A "$ua" "$url" -o ryujinx.tar.gz
           mkdir emu && tar -xzf ryujinx.tar.gz -C emu
           find emu -maxdepth 3 -type f -name 'Ryujinx*' | head
       - name: Prepare emulated SD card
