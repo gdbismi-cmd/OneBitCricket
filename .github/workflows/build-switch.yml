@@ -15,3 +15,75 @@ jobs:
         with:
           name: OneBitCricket-switch
           path: switch/OneBitCricket.nro
+
+  # Boot the built .nro in Ryubing (Ryujinx) under a virtual display with
+  # software Vulkan. The game reads autotest.txt from the emulated SD card,
+  # plays itself and writes frames, an event log and a summary back there.
+  emulator-test:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: OneBitCricket-switch
+      - name: Install virtual display and software Vulkan
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q xvfb mesa-vulkan-drivers libgl1-mesa-dri imagemagick netpbm jq
+      - name: Download Ryubing
+        run: |
+          curl -fsSL "https://git.ryujinx.app/api/v4/projects/ryubing%2Fryujinx/releases?per_page=5" -o releases.json
+          url=$(jq -r '[.[].assets.links[] | select(.name | test("linux_x64.*tar.gz$"))][0].url' releases.json)
+          echo "Ryubing: $url"
+          curl -fsSL "$url" -o ryujinx.tar.gz
+          mkdir emu && tar -xzf ryujinx.tar.gz -C emu
+          find emu -maxdepth 3 -type f -name 'Ryujinx*' | head
+      - name: Prepare emulated SD card
+        run: |
+          sd="$HOME/.config/Ryujinx/sdcard/switch/OneBitCricket"
+          mkdir -p "$sd"
+          cp OneBitCricket.nro "$HOME/.config/Ryujinx/sdcard/switch/"
+          echo "--dump sdmc:/switch/OneBitCricket/dump --play --demo --frames 2400 --every 240" > "$sd/autotest.txt"
+      - name: Run the .nro
+        run: |
+          exe=$(find "$PWD/emu" -maxdepth 3 -type f -name Ryujinx | head -1)
+          chmod +x "$exe"
+          mkdir -p shots
+          Xvfb :99 -screen 0 1280x800x24 &
+          export DISPLAY=:99
+          sleep 2
+          "$exe" "$HOME/.config/Ryujinx/sdcard/switch/OneBitCricket.nro" > emu.log 2>&1 &
+          pid=$!
+          sum="$HOME/.config/Ryujinx/sdcard/switch/OneBitCricket/dump/summary.txt"
+          for i in $(seq 1 40); do
+            sleep 10
+            import -window root "shots/shot_$(printf %02d $i).png" || true
+            [ -f "$sum" ] && break
+            kill -0 $pid 2>/dev/null || break
+          done
+          kill $pid 2>/dev/null || true
+          tail -50 emu.log
+      - name: Collect results
+        if: always()
+        run: |
+          mkdir -p results
+          cp -r shots emu.log results/ 2>/dev/null || true
+          cp -r "$HOME/.config/Ryujinx/Logs" results/ryujinx-logs 2>/dev/null || true
+          d="$HOME/.config/Ryujinx/sdcard/switch/OneBitCricket/dump"
+          if [ -d "$d" ]; then
+            mkdir -p results/dump
+            for f in "$d"/*.pgm; do [ -f "$f" ] && pnmtopng "$f" > "results/dump/$(basename "$f" .pgm).png"; done
+            cp "$d"/*.txt "$d"/*.log results/dump/ 2>/dev/null || true
+            echo "--- summary"; cat "$d/summary.txt" 2>/dev/null || echo "(no summary)"
+            echo "--- events"; head -40 "$d/events.log" 2>/dev/null || true
+          else
+            echo "The game wrote nothing to the SD card"
+          fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: OneBitCricket-switch-emulator-test
+          path: results
+      - name: Check the game ran to the end
+        run: grep -q '^frames 2400' "$HOME/.config/Ryujinx/sdcard/switch/OneBitCricket/dump/summary.txt"

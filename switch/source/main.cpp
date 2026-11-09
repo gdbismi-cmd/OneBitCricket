@@ -530,8 +530,9 @@ static bool moveToward(F& f, double tx, double ty, double step) {
 }
 
 /* ---------------- HUD hooks ---------------- */
-static void hint(const std::string& t) { hintText = t; }
-static void flash(const std::string& big, const std::string& sub) { flashBig = big; flashSub = sub; flashT = 0; }
+static FILE* tlog = nullptr;  // autotest event log
+static void hint(const std::string& t) { hintText = t; if (tlog) fprintf(tlog, "%.2f hint %s\n", gT, t.c_str()); }
+static void flash(const std::string& big, const std::string& sub) { flashBig = big; flashSub = sub; flashT = 0; if (tlog) fprintf(tlog, "%.2f flash %s | %s\n", gT, big.c_str(), sub.c_str()); }
 static void setMeter();
 static void judge(double err, int kind);
 static void scoreBall(int r, char sym);
@@ -1463,14 +1464,19 @@ static void openPads() {
   for (int i = 0; i < SDL_NumJoysticks() && !gc; i++) if (SDL_IsGameController(i)) gc = SDL_GameControllerOpen(i);
 #endif
 }
+#ifndef __SWITCH__
 static void toCanvas(int wx, int wy, double& px, double& py) {
   int ww, wh; SDL_GetWindowSize(win, &ww, &wh);
   double s = std::min((double)ww / W, (double)wh / H), ox = (ww - W * s) / 2, oy = (wh - H * s) / 2;
   px = (wx - ox) / s; py = (wy - oy) / s;
 }
+#endif
 
-// --dump DIR [--frames N] [--demo] [--train] [--ground I]: headless test
-// run (desktop only) that writes PGM frames and plays shots automatically
+// --dump DIR [--frames N] [--every N] [--demo] [--play|--train|--end|--pause]
+// [--ground I]: test run that writes PGM frames, an event log and a summary
+// to DIR, playing shots automatically with --demo. On the Switch the same
+// arguments are read from sdmc:/switch/OneBitCricket/autotest.txt, so the
+// shipped .nro can be tested in an emulator; without that file it never runs.
 static bool dumpMode = false, demo = false; static std::string dumpDir; static int dumpEvery = 30, maxFrames = 0;
 static void dumpFrame(int n) {
   char name[512]; snprintf(name, sizeof name, "%s/f%05d.pgm", dumpDir.c_str(), n);
@@ -1488,12 +1494,20 @@ static void demoStep() {
 
 int main(int argc, char** argv) {
   bool startTrain = false, startPlay = false, startEnd = false, startPause = false; int ground = 0;
-  for (int i = 1; i < argc; i++) {
-    std::string a = argv[i];
-    if (a == "--dump" && i + 1 < argc) { dumpMode = true; dumpDir = argv[++i]; }
-    else if (a == "--frames" && i + 1 < argc) maxFrames = atoi(argv[++i]);
-    else if (a == "--every" && i + 1 < argc) dumpEvery = atoi(argv[++i]);
-    else if (a == "--ground" && i + 1 < argc) ground = atoi(argv[++i]);
+  std::vector<std::string> args(argv + 1, argv + argc);
+#ifdef __SWITCH__
+  if (FILE* af = fopen("sdmc:/switch/OneBitCricket/autotest.txt", "r")) {
+    char tok[512]; while (fscanf(af, "%511s", tok) == 1) args.push_back(tok);
+    fclose(af);
+  }
+#endif
+  int argn = (int)args.size();
+  for (int i = 0; i < argn; i++) {
+    std::string a = args[i];
+    if (a == "--dump" && i + 1 < argn) { dumpMode = true; dumpDir = args[++i]; }
+    else if (a == "--frames" && i + 1 < argn) maxFrames = atoi(args[++i].c_str());
+    else if (a == "--every" && i + 1 < argn) dumpEvery = atoi(args[++i].c_str());
+    else if (a == "--ground" && i + 1 < argn) ground = atoi(args[++i].c_str());
     else if (a == "--demo") demo = true;
     else if (a == "--play") startPlay = true;
     else if (a == "--train") startTrain = true;
@@ -1512,6 +1526,12 @@ int main(int argc, char** argv) {
   adev = SDL_OpenAudioDevice(nullptr, 0, &want, &have, 0);
   if (adev) { SR = have.freq; SDL_PauseAudioDevice(adev, 0); }
   openPads();
+  if (dumpMode) {
+    mkdir(dumpDir.c_str(), 0777);
+    tlog = fopen((dumpDir + "/events.log").c_str(), "w");
+    SDL_RendererInfo ri{}; if (ren) SDL_GetRendererInfo(ren, &ri);
+    if (tlog) fprintf(tlog, "boot renderer=%s audio=%d joysticks=%d\n", ren ? ri.name : "none", adev ? 1 : 0, SDL_NumJoysticks());
+  }
 
   initPatterns(); initFont();
   pickStadium(ground);
@@ -1526,7 +1546,9 @@ int main(int argc, char** argv) {
   while (running && !quitRequested) {
     SDL_Event e;
     while (SDL_PollEvent(&e)) {
+#ifndef __SWITCH__
       double px, py;
+#endif
       switch (e.type) {
         case SDL_QUIT: running = false; break;
         case SDL_JOYDEVICEADDED: case SDL_CONTROLLERDEVICEADDED: openPads(); break;
@@ -1550,10 +1572,18 @@ int main(int argc, char** argv) {
     gT += dt;
     update(dt); render();
     if (startEnd && state != S_END && frameN == 10) { M->score = M->target; M->balls = 17; M->fours = 3; M->sixes = 2; endMatch(0); }
-    if (dumpMode) { if (frameN % dumpEvery == 0) dumpFrame(frameN); }
-    else present();
+    if (dumpMode && frameN % dumpEvery == 0) dumpFrame(frameN);
+    present();
     if (maxFrames && ++frameN >= maxFrames) break;
     if (!maxFrames) frameN++;
+  }
+  if (dumpMode) {
+    if (FILE* f = fopen((dumpDir + "/summary.txt").c_str(), "w")) {
+      fprintf(f, "frames %d\nscreen %d\nstate %d\n", frameN, (int)screen, (int)state);
+      if (M) fprintf(f, "score %d/%d\nballs %d\nfours %d\nsixes %d\ntarget %d\n", M->score, M->wk, M->balls, M->fours, M->sixes, M->target);
+      fclose(f);
+    }
+    if (tlog) fclose(tlog);
   }
   if (adev) SDL_CloseAudioDevice(adev);
   SDL_Quit();
