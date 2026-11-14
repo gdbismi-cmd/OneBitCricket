@@ -80,13 +80,32 @@ static const Diff DIFF[] = {
 
 /* ---------------- 1-bit framebuffer ---------------- */
 static const int W = 640, H = 360;
-static uint8_t fb[W * H];  // 1 = white
+// The palette of the Android build's colour look. Each entry also keeps
+// its original 1-bit value (1 = white), which the 1-BIT look shows instead.
+enum Col {
+  C_NIGHT, C_INK, C_WHITE, C_SEAT, C_FANR, C_FANY, C_FANB, C_FANO, C_FANP, C_APRON, C_ROPE,
+  C_GRASS, C_GRASS2, C_TUFT, C_EDGE, C_RING, C_PITCH, C_DUST, C_WEAR, C_CREASE, C_STUMP,
+  C_TEAM, C_HELMET, C_BAT, C_BALL, C_SHADOW, C_MARKER, C_SEA, C_FOAM, C_SAND, C_SANDDOT,
+  C_ROCK, C_SLOPE, C_STONE, C_WALL, C_PALM, C_ACCENT, C_GOOD, C_BAD, C_N
+};
+static const struct { uint32_t rgb; uint8_t mono; } PALETTE[C_N] = {
+  { 0x121826, 0 }, { 0x1b1f2a, 0 }, { 0xffffff, 1 }, { 0x2a3142, 0 }, { 0xff6b6b, 1 }, { 0xffd93d, 1 }, { 0x6bcbff, 1 }, { 0xff9f43, 1 }, { 0xc56cf0, 1 }, { 0xefe6c8, 1 }, { 0xd13b2e, 0 },
+  { 0x9ccf5c, 1 }, { 0x8ec24e, 1 }, { 0x4e8a2c, 0 }, { 0x2f6a22, 0 }, { 0xe9f5d8, 0 }, { 0xe2c58a, 1 }, { 0xc9a565, 0 }, { 0xb48b4e, 0 }, { 0xfffdf5, 0 }, { 0xf4b942, 0 },
+  { 0x2456c9, 0 }, { 0x1c3f8f, 0 }, { 0xa8743c, 0 }, { 0xd62828, 0 }, { 0x3b6b25, 0 }, { 0xff4f9a, 0 }, { 0x1f5f9e, 0 }, { 0x8fd0f0, 1 }, { 0xe9cd85, 1 }, { 0xb07a2a, 0 },
+  { 0x4a5872, 0 }, { 0xa9b6c9, 1 }, { 0x3a3f4b, 0 }, { 0xd7d9de, 1 }, { 0x7bd35a, 1 }, { 0xffd93d, 1 }, { 0x9ccf5c, 1 }, { 0xff5a4f, 1 },
+};
+static bool monoLook = false;
+static uint8_t fb[W * H];  // palette indices
 static uint8_t clipMask[W * H];
 static bool clipOn = false;
 
-struct Pat { int w = 1, h = 1; std::vector<uint8_t> v{1}; };
-struct Paint { int solid; const Pat* p; };  // solid 0 black, 1 white, -1 pattern
-static const Paint BLACK{0, nullptr}, WHITE{1, nullptr};
+struct Pat { int w = 1, h = 1; std::vector<uint8_t> v{C_WHITE}; };
+struct Paint { int solid; const Pat* p; };  // solid: a palette index, or -1 for the pattern
+static const Paint BLACK{C_INK, nullptr}, WHITE{C_WHITE, nullptr}, NIGHT{C_NIGHT, nullptr};
+static const Paint APRON{C_APRON, nullptr}, ROPE{C_ROPE, nullptr}, EDGE{C_EDGE, nullptr}, RING{C_RING, nullptr}, PITCH{C_PITCH, nullptr};
+static const Paint CREASE{C_CREASE, nullptr}, STUMP{C_STUMP, nullptr}, TEAM{C_TEAM, nullptr}, HELMET{C_HELMET, nullptr}, BAT{C_BAT, nullptr};
+static const Paint BALLC{C_BALL, nullptr}, SHADOW{C_SHADOW, nullptr}, MARKER{C_MARKER, nullptr}, PALM{C_PALM, nullptr};
+static const Paint ACCENT{C_ACCENT, nullptr}, GOOD{C_GOOD, nullptr}, BAD{C_BAD, nullptr};
 static Paint pp(const Pat& p) { return {-1, &p}; }
 static int patOX = 0, patOY = 0;
 static inline int paintAt(const Paint& c, int x, int y) {
@@ -181,21 +200,27 @@ static void ellipsePath(double cx, double cy, double rx, double ry) {
 }
 
 /* ---------------- canvas + patterns ---------------- */
-static Pat pat(int w, int h, const std::function<bool(int, int)>& fn) {
-  Pat p; p.w = w; p.h = h; p.v.assign(w * h, 1);
-  for (int j = 0; j < h; j++) for (int i = 0; i < w; i++) p.v[j * w + i] = fn(i, j) ? 0 : 1;
+// fn(i, j) gives the palette index of each pattern pixel
+static Pat patIdx(int w, int h, const std::function<int(int, int)>& fn) {
+  Pat p; p.w = w; p.h = h; p.v.assign(w * h, C_WHITE);
+  for (int j = 0; j < h; j++) for (int i = 0; i < w; i++) p.v[j * w + i] = (uint8_t)fn(i, j);
   return p;
 }
-static Pat Pgrass, Pgrass2, Ppitch, Pcheck, Pdark, Phatch, Pwaves, Psand, crowdA, crowdB;
+static Pat pat(int w, int h, const std::function<bool(int, int)>& fn, int ink = C_INK, int paper = C_WHITE) {
+  return patIdx(w, h, [&](int i, int j) { return fn(i, j) ? ink : paper; });
+}
+static Pat Pgrass, Pgrass2, Ppitch, Pwear, Pcheck, Pdark, Phatch, Pwaves, Psand, Pzone, crowdA, crowdB;
 static void initPatterns() {
-  Pgrass = pat(8, 8, [](int i, int j) { return (i == 0 && j == 0) || (i == 4 && j == 4); });
-  Pgrass2 = pat(4, 4, [](int i, int j) { return (i == 0 && j == 0) || (i == 2 && j == 2); });
-  Ppitch = pat(2, 2, [](int i, int j) { return i == 0 && j == 0; });
-  Pcheck = pat(2, 2, [](int i, int j) { return (i + j) % 2 == 0; });
+  Pgrass = pat(8, 8, [](int i, int j) { return (i == 0 && j == 0) || (i == 4 && j == 4); }, C_TUFT, C_GRASS);
+  Pgrass2 = pat(4, 4, [](int i, int j) { return (i == 0 && j == 0) || (i == 2 && j == 2); }, C_TUFT, C_GRASS2);
+  Ppitch = pat(2, 2, [](int i, int j) { return i == 0 && j == 0; }, C_DUST, C_PITCH);
+  Pwear = pat(2, 2, [](int i, int j) { return (i + j) % 2 == 0; }, C_WEAR, C_PITCH);
+  Pcheck = pat(2, 2, [](int i, int j) { return (i + j) % 2 == 0; }, C_STONE, C_WALL);
   Pdark = pat(2, 2, [](int i, int j) { return !(i == 0 && j == 0); });
-  Phatch = pat(4, 4, [](int i, int j) { return (i + j) % 4 == 0; });
-  Pwaves = pat(12, 6, [](int i, int j) { return !((j == 0 && i < 5) || (j == 3 && i >= 6 && i < 11)); });
-  Psand = pat(7, 7, [](int i, int j) { return (i == 1 && j == 2) || (i == 5 && j == 5); });
+  Phatch = pat(4, 4, [](int i, int j) { return (i + j) % 4 == 0; }, C_ROCK, C_SLOPE);
+  Pwaves = pat(12, 6, [](int i, int j) { return !((j == 0 && i < 5) || (j == 3 && i >= 6 && i < 11)); }, C_SEA, C_FOAM);
+  Psand = pat(7, 7, [](int i, int j) { return (i == 1 && j == 2) || (i == 5 && j == 5); }, C_SANDDOT, C_SAND);
+  Pzone = pat(2, 2, [](int i, int j) { return (i + j) % 2 == 0; }, C_NIGHT, C_GOOD);  // timing meter window
 }
 static std::function<double()> srandf(uint32_t seed) {
   auto s = std::make_shared<uint32_t>(seed);
@@ -204,9 +229,12 @@ static std::function<double()> srandf(uint32_t seed) {
 static void makeCrowd(double d, uint32_t seed) {
   auto r = srandf(seed); const int N = 48; std::vector<bool> base;
   for (int j = 0; j < N; j++) for (int i = 0; i < N; i++) base.push_back(j % 3 != 2 && r() < d);
-  crowdA = pat(N, N, [&](int i, int j) { return !base[j * N + i]; });
+  static const int FANS[] = { C_FANR, C_FANY, C_FANB, C_FANO, C_FANP, C_WHITE };
+  auto rc = srandf(seed * 13 + 5); std::vector<int> col;
+  for (size_t k = 0; k < base.size(); k++) col.push_back(FANS[(int)(rc() * 6)]);
+  crowdA = patIdx(N, N, [&](int i, int j) { return base[j * N + i] ? col[j * N + i] : (int)C_SEAT; });
   auto r2 = srandf(seed * 7 + 3);
-  crowdB = pat(N, N, [&](int i, int j) { bool v = base[j * N + i]; if (j % 3 != 2 && r2() < 0.4) v = !v; return !v; });
+  crowdB = patIdx(N, N, [&](int i, int j) { bool v = base[j * N + i]; if (j % 3 != 2 && r2() < 0.4) v = !v; return v ? col[j * N + i] : (int)C_SEAT; });
 }
 
 /* ---------------- state ---------------- */
@@ -315,7 +343,7 @@ static void lightsTowers(int n) {
 }
 static void palm(double x, double y) {
   int sx = X(x), sy = Y(y), r = std::max(3, jround(3.2 * cam.s));
-  for (int a = 0; a < 6; a++) { double t = a / 6.0 * TAU + 0.3; pline(sx, sy, sx + jround(std::cos(t) * r), sy + jround(std::sin(t) * r), WHITE); }
+  for (int a = 0; a < 6; a++) { double t = a / 6.0 * TAU + 0.3; pline(sx, sy, sx + jround(std::cos(t) * r), sy + jround(std::sin(t) * r), PALM); }
   disc(sx, sy, 1, BLACK);
 }
 static void featBack() {
@@ -361,17 +389,17 @@ static void featFront() {
 static int personR() { return std::max(2, jround(0.34 * cam.s)); }
 static void drawFielder(const F& f) {
   int sx = X(f.x), sy = Y(f.y), r = personR();
-  disc(sx, sy, r, BLACK);
+  disc(sx, sy, r, TEAM);
   if (r >= 3) disc(sx, sy, 0, WHITE);
   if (f.role == R_KEEPER && r >= 2) { fillRect(sx - r, sy - 1, 1, 1, WHITE); fillRect(sx + r, sy - 1, 1, 1, WHITE); }
 }
 static void drawBatter(const Batter& b, bool withBat) {
   int sx = X(b.x), sy = Y(b.y), r = personR();
-  disc(sx, sy, r + 1, BLACK); disc(sx, sy, r, WHITE); if (r >= 3) disc(sx, sy, r - 2, BLACK);
+  disc(sx, sy, r + 1, BLACK); disc(sx, sy, r, WHITE); if (r >= 3) disc(sx, sy, r - 2, HELMET);
   if (withBat) {
     double a = 1.2, L = std::max(.7, 3 / cam.s);
     if (b.sw > 0) { double u = 1 - b.sw / 0.24; a = b.sa + PI * 0.9 * (1 - u) * (1 - u) - 0.2 * u; L = std::max(.95, 4 / cam.s); }
-    pline(sx, sy, sx + jround(std::cos(a) * L * cam.s), sy + jround(std::sin(a) * L * cam.s), BLACK);
+    pline(sx, sy, sx + jround(std::cos(a) * L * cam.s), sy + jround(std::sin(a) * L * cam.s), BAT);
   }
 }
 static void drawUmpire(double x, double y) {
@@ -380,23 +408,23 @@ static void drawUmpire(double x, double y) {
 }
 static void drawStumps(double yy, int down) {
   int sx = X(0), sy = Y(yy), w = std::max(3, jround(0.26 * cam.s)), h = std::max(1, jround(0.1 * cam.s));
-  if (down > 0) { fillRect(sx - (w >> 1), sy, 1, h, BLACK); fillRect(sx + (w >> 1), sy + 1, 1, h, BLACK); fillRect(sx, sy - 1, 1, h, BLACK); }
-  else fillRect(sx - (w >> 1), sy, w, h, BLACK);
+  if (down > 0) { fillRect(sx - (w >> 1), sy, 1, h, STUMP); fillRect(sx + (w >> 1), sy + 1, 1, h, STUMP); fillRect(sx, sy - 1, 1, h, STUMP); }
+  else fillRect(sx - (w >> 1), sy, w, h, STUMP);
 }
 static void drawBall(double x, double y, double z) {
   int sx = X(x), sy = Y(y);
-  if (z > 0.15) { fillRect(sx - 1, sy, 1, 1, BLACK); fillRect(sx + 1, sy, 1, 1, BLACK); }
+  if (z > 0.15) { fillRect(sx - 1, sy, 1, 1, SHADOW); fillRect(sx + 1, sy, 1, 1, SHADOW); }
   int by = sy - jround(z * cam.s * 0.45), r = std::max(1, jround(0.1 * cam.s + std::min(2.0, z * 0.2)));
-  disc(sx, by, r + 1, WHITE); disc(sx, by, r, BLACK);
+  disc(sx, by, r + 1, WHITE); disc(sx, by, r, BALLC);
 }
 static void drawPitch() {
-  wRect(0, 0, 3.2, 23, WHITE); wRect(0, 0, 3.2, 23, pp(Ppitch));
-  Paint chk = pp(Pcheck);
-  wEll(0.55, -7.2, 0.6, 1.3, &chk, nullptr); wEll(-0.55, 7.4, 0.6, 1.2, &chk, nullptr);
+  wRect(0, 0, 3.2, 23, PITCH); wRect(0, 0, 3.2, 23, pp(Ppitch));
+  Paint wear = pp(Pwear);
+  wEll(0.55, -7.2, 0.6, 1.3, &wear, nullptr); wEll(-0.55, 7.4, 0.6, 1.2, &wear, nullptr);
   double lw = std::max(1 / cam.s, 0.06);
   for (int g : {-1, 1}) {
-    wRect(0, g * 8.78, 3.66, lw, BLACK); wRect(0, g * 10.06, 2.64, lw, BLACK);
-    wRect(-1.32, g * 9.7, lw, 2.2, BLACK); wRect(1.32, g * 9.7, lw, 2.2, BLACK);
+    wRect(0, g * 8.78, 3.66, lw, CREASE); wRect(0, g * 10.06, 2.64, lw, CREASE);
+    wRect(-1.32, g * 9.7, lw, 2.2, CREASE); wRect(1.32, g * 9.7, lw, 2.2, CREASE);
   }
   drawStumps(-10.06, stumpsTop); drawStumps(10.06, stumpsBot);
 }
@@ -880,15 +908,25 @@ static void nextOrEnd() {
 
 /* ---------------- match flow ---------------- */
 struct Rec { int p = 0, w = 0; };
-static std::string savePath() {
+static std::string dataPath(const char* name) {
 #ifdef __SWITCH__
   mkdir("sdmc:/switch", 0777); mkdir("sdmc:/switch/OneBitCricket", 0777);
-  return "sdmc:/switch/OneBitCricket/records.txt";
+  return std::string("sdmc:/switch/OneBitCricket/") + name;
 #else
   const char* base = SDL_GetPrefPath("onebit", "OneBitCricket");
-  std::string p = base ? std::string(base) + "records.txt" : "records.txt";
-  return p;
+  return base ? std::string(base) + name : name;
 #endif
+}
+static std::string savePath() { return dataPath("records.txt"); }
+// the Look choice: "colour" or "mono", kept in look.txt
+static void loadLook() {
+  FILE* f = fopen(dataPath("look.txt").c_str(), "r"); if (!f) return;
+  char v[16] = ""; if (fscanf(f, "%15s", v) == 1) monoLook = !strcmp(v, "mono");
+  fclose(f);
+}
+static void setLook(bool mono) {
+  monoLook = mono;
+  if (FILE* f = fopen(dataPath("look.txt").c_str(), "w")) { fputs(mono ? "mono\n" : "colour\n", f); fclose(f); }
 }
 static std::map<std::string, Rec> store() {
   std::map<std::string, Rec> s; FILE* f = fopen(savePath().c_str(), "r"); if (!f) return s;
@@ -972,7 +1010,7 @@ static void update(double dt) {
 /* ---------------- render: world ---------------- */
 static void renderWorld() {
   clipOn = false;
-  fillRect(0, 0, W, H, BLACK);
+  fillRect(0, 0, W, H, NIGHT);
   anchor();
   featBack();
   sePath(30); fillPath(pp((celebrate > 0 && ((int)(gT * 8)) % 2) ? crowdB : crowdA));
@@ -980,22 +1018,22 @@ static void renderWorld() {
   for (int k = 0; k < 20; k++) { double a = k / 20.0 * TAU + 0.08; V2 p = sePt(a, 6), q = sePt(a, 30); pline(X(p.x), Y(p.y), X(q.x), Y(q.y), WHITE); }
   if (st->lights) lightsTowers(st->lights);
   featFront();
-  sePath(6); fillPath(WHITE);
-  sePath(4.2); strokePath(std::max(1.0, 1.4 * cam.s), BLACK);
+  sePath(6); fillPath(APRON);
+  sePath(4.2); strokePath(std::max(1.0, 1.4 * cam.s), ROPE);
   // field with mowing stripes
   sePath(0); clipPath();
   for (double yb = -st->ry - 12; yb < st->ry + 12; yb += 7) { int y0 = Y(yb); fillRect(0, y0, W, Y(yb + 7) - y0, pp(((int)std::floor(yb / 7) & 1) ? Pgrass2 : Pgrass)); }
   clipOn = false;
-  sePath(0); strokePath(std::max(1.0, 0.45 * cam.s), BLACK);
+  sePath(0); strokePath(std::max(1.0, 0.45 * cam.s), EDGE);
   // 30-yard circle (dotted)
   int dots = std::max(24, jround(27 * TAU * cam.s / 5));
-  for (int i = 0; i < dots; i++) { double a = (double)i / dots * TAU; fillRect(X(std::cos(a) * 27.4), Y(std::sin(a) * 27.4), 1, 1, BLACK); }
+  for (int i = 0; i < dots; i++) { double a = (double)i / dots * TAU; fillRect(X(std::cos(a) * 27.4), Y(std::sin(a) * 27.4), 1, 1, RING); }
   drawPitch();
   // pitch marker
   if (del && M && DIFF[opts.diff].marker && ((state == S_RUNUP && stateT > 0.5) || (state == S_DELIVERY && !del->bounced))) {
     int sx = X(del->px), sy = Y(del->py), r = std::max(2, jround(0.32 * cam.s));
-    for (int a = 0; a < 12; a++) { double t = a / 12.0 * TAU; fillRect(sx + jround(std::cos(t) * r), sy + jround(std::sin(t) * r), 1, 1, BLACK); }
-    fillRect(sx, sy, 1, 1, BLACK);
+    for (int a = 0; a < 12; a++) { double t = a / 12.0 * TAU; fillRect(sx + jround(std::cos(t) * r), sy + jround(std::sin(t) * r), 1, 1, MARKER); }
+    fillRect(sx, sy, 1, 1, MARKER);
   }
   if (M && M->training && del && state != S_MENU && state != S_END) {
     double half = std::max(.5, del->speed * .05); int y0 = Y(YC - half), y1 = Y(YC + half);
@@ -1020,7 +1058,7 @@ static void renderWorld() {
     else drawBatter(batN, false);
   }
   if (ballOn && ball.vis) drawBall(ball.x, ball.y, ball.z);
-  for (auto& p : parts) { int sy = Y(p.y) - jround(p.z * cam.s * 0.45); fillRect(X(p.x), sy, 2, 1, BLACK); }
+  for (auto& p : parts) { int sy = Y(p.y) - jround(p.z * cam.s * 0.45); fillRect(X(p.x), sy, 2, 1, STUMP); }
 }
 
 /* ---------------- text ---------------- */
@@ -1070,7 +1108,7 @@ static void frameRect(int x, int y, int w, int h, int t, const Paint& c) {
 /* ---------------- buttons (focus + touch) ---------------- */
 enum BtnId {
   B_NONE, B_PREV, B_NEXT, B_OV2, B_OV5, B_OV10, B_EASY, B_NORMAL, B_HARD, B_PLAY, B_TRAIN,
-  B_AGAIN, B_GROUNDS, B_RESUME, B_QUIT, B_PAUSE, B_TTYPE, B_TSPD, B_TGUIDE,
+  B_AGAIN, B_GROUNDS, B_RESUME, B_QUIT, B_PAUSE, B_TTYPE, B_TSPD, B_TGUIDE, B_COLOUR, B_MONO,
 };
 struct Btn { int x, y, w, h, id; };
 static std::vector<Btn> btns, lastBtns;
@@ -1079,10 +1117,16 @@ static bool showFocus = true;
 static void button(int x, int y, int w, int h, int id, const std::string& label, bool pressed, int sc = 1, bool bold = false, bool focusable = true) {
   // JS button: black, 2px white border, 3px white drop shadow; aria-pressed inverts
   fillRect(x + 3, y + 3, w, h, WHITE);
-  fillRect(x, y, w, h, pressed ? WHITE : BLACK);
+  fillRect(x, y, w, h, pressed ? ACCENT : NIGHT);
   frameRect(x, y, w, h, 2, WHITE);
-  const Paint& ink = pressed ? BLACK : WHITE;
+  const Paint& ink = pressed ? NIGHT : WHITE;
   auto lines = wrap(label, w - 8, sc, bold);
+  auto fits = [&]() {  // shrink a long label until it fits the button
+    if ((int)lines.size() * lineH(sc) - 4 * sc > h - 4) return false;
+    for (auto& l : lines) if (textW(l, sc, bold) > w - 6) return false;
+    return true;
+  };
+  while (sc > 1 && !fits()) lines = wrap(label, w - 8, --sc, bold);
   int th = (int)lines.size() * lineH(sc) - 4 * sc, ty = y + (h - th) / 2 + 1;
   for (auto& l : lines) { drawText(x + w / 2, ty, l, sc, bold, ink, 1); ty += lineH(sc); }
   if (focusable && showFocus && focus == id) {
@@ -1124,6 +1168,8 @@ static void doAction(int id) {
     case B_TTYPE: if (M) { M->tSpin = !M->tSpin; setHomes(); } break;
     case B_TSPD: if (M) M->tSpeed = M->tSpeed < .75 ? .85 : M->tSpeed < .9 ? 1 : .7; break;
     case B_TGUIDE: if (M) M->guide = !M->guide; break;
+    case B_COLOUR: setLook(false); break;
+    case B_MONO: setLook(true); break;
   }
 }
 static bool menuNav() { return screen == SC_MENU || screen == SC_END || paused; }
@@ -1229,32 +1275,32 @@ static void drawStick() {
   Paint chk = pp(Pcheck);
   fillCircle(STK_X + .5, STK_Y + .5, STK_R, chk);
   fillCircle(STK_X + .5, STK_Y + .5, STK_R * .79, WHITE);
-  fillCircle(STK_X + .5, STK_Y + .5, STK_R * .77, BLACK);
+  fillCircle(STK_X + .5, STK_Y + .5, STK_R * .77, NIGHT);
   ellipsePath(STK_X + .5, STK_Y + .5, STK_R + 1, STK_R + 1); strokePath(2.5, WHITE);
   fillRect(STK_X - 1, STK_Y - 1, 3, 3, WHITE);
   double kx = STK_X + .5 + knobDX * PULL_R, ky = STK_Y + .5 + knobDY * PULL_R;
   fillCircle(kx, ky, KNOB_R + 3, WHITE);
-  fillCircle(kx, ky, KNOB_R + 1.5, BLACK);
+  fillCircle(kx, ky, KNOB_R + 1.5, NIGHT);
   fillCircle(kx, ky, KNOB_R, aim.p >= LOFT_AT ? chk : WHITE);
 }
 static void drawMeter(int x, int y, int w) {
   patOX = 0; patOY = 0;
   int h = 10;
-  fillRect(x, y, w, h, BLACK); frameRect(x, y, w, h, 2, WHITE);
+  fillRect(x, y, w, h, NIGHT); frameRect(x, y, w, h, 2, WHITE);
   int zl = x + jround(meter.zoneL * w), zr = x + jround(meter.zoneR * w);
-  fillRect(zl, y + 2, zr - zl, h - 4, pp(Pcheck));
+  fillRect(zl, y + 2, zr - zl, h - 4, pp(Pzone));
   int pl = x + jround(meter.perfL * w), pr = x + jround(meter.perfR * w);
-  fillRect(pl, y + 2, pr - pl, h - 4, WHITE);
+  fillRect(pl, y + 2, pr - pl, h - 4, ACCENT);
   fillRect(x + w / 2 - 1, y - 3, 2, h + 6, WHITE);
-  if (!meter.pinHidden) { int px = x + jround(meter.pin * w); fillRect(px - 3, y - 4, 7, h + 8, WHITE); fillRect(px - 1, y - 2, 3, h + 4, BLACK); }
+  if (!meter.pinHidden) { int px = x + jround(meter.pin * w); fillRect(px - 3, y - 4, 7, h + 8, WHITE); fillRect(px - 1, y - 2, 3, h + 4, NIGHT); }
 }
 static void drawBalls(int x, int y) {
   for (char s : M->thisOver) {
     int bw = 12; std::string t(1, s);
     bool hit = s == '4' || s == '6' || s == 'P', w = s == 'W';
-    if (w) frameRect(x - 2, y - 2, bw + 4, bw + 4, 1, WHITE);
-    fillRect(x, y, bw, bw, hit || w ? WHITE : BLACK); frameRect(x, y, bw, bw, 1, WHITE);
-    drawText(x + bw / 2, y + 4, t, 1, true, hit || w ? BLACK : WHITE, 1);
+    if (w) frameRect(x - 2, y - 2, bw + 4, bw + 4, 1, BAD);
+    fillRect(x, y, bw, bw, hit ? GOOD : w ? BAD : NIGHT); frameRect(x, y, bw, bw, 1, w ? BAD : WHITE);
+    drawText(x + bw / 2, y + 4, t, 1, true, hit || w ? NIGHT : WHITE, 1);
     x += bw + 5;
   }
 }
@@ -1264,25 +1310,25 @@ static void drawFlash() {
   if (k >= 7) return;
   int sc = k == 0 ? 3 : 4, cx = (FX0 + FX1) / 2, cy = jround(H * .38);
   sc = std::min(sc, fitScale(flashBig, FX1 - FX0 - 16, sc, true));
-  for (int dx = -2; dx <= 2; dx++) for (int dy = -2; dy <= 2; dy++) drawText(cx + dx, cy + dy, flashBig, sc, true, BLACK, 1);
-  drawText(cx + 4, cy + 4, flashBig, sc, true, BLACK, 1);
-  drawText(cx, cy, flashBig, sc, true, WHITE, 1);
+  for (int dx = -2; dx <= 2; dx++) for (int dy = -2; dy <= 2; dy++) drawText(cx + dx, cy + dy, flashBig, sc, true, NIGHT, 1);
+  drawText(cx + 4, cy + 4, flashBig, sc, true, NIGHT, 1);
+  drawText(cx, cy, flashBig, sc, true, ACCENT, 1);
   if (!flashSub.empty()) {
     std::string s = upper(flashSub); int tw = textW(s, 2, false), y = cy + 5 * sc + 10;
-    fillRect(cx - tw / 2 - 6, y - 4, tw + 12, 18, BLACK);
+    fillRect(cx - tw / 2 - 6, y - 4, tw + 12, 18, NIGHT);
     drawText(cx, y, s, 2, false, WHITE, 1);
   }
 }
 static void panels() {
-  fillRect(0, 0, LPW, H, BLACK); fillRect(LPW, 0, 2, H, WHITE);
-  fillRect(RPX, 0, W - RPX, H, BLACK); fillRect(RPX - 2, 0, 2, H, WHITE);
+  fillRect(0, 0, LPW, H, NIGHT); fillRect(LPW, 0, 2, H, WHITE);
+  fillRect(RPX, 0, W - RPX, H, NIGHT); fillRect(RPX - 2, 0, 2, H, WHITE);
 }
 static const int LX = 10, LW = LPW - 20, RX = RPX + 10, RW = W - RPX - 20;
 static void drawMenu() {
   panels();
   int y = 12;
-  drawText(LX, y, "1-BIT", 3, true, WHITE); y += 21;
-  drawText(LX, y, "CRICKET", 3, true, WHITE); y += 23;
+  drawText(LX, y, "1-BIT", 3, true, ACCENT); y += 21;
+  drawText(LX, y, "CRICKET", 3, true, ACCENT); y += 23;
   y = drawWrapped(LX, y, LW, "10 GROUNDS " DOT " CHASE THE TARGET", 1, false) + 6;
   for (int i = LX; i < LX + LW; i += 2) put(i, y, WHITE);
   y += 8;
@@ -1320,6 +1366,10 @@ static void drawMenu() {
   drawText(RX, y, "BOWLING", 1, false, WHITE); y += 11;
   const char* dn[3] = { "EASY", "NORMAL", "HARD" }; int did[3] = { B_EASY, B_NORMAL, B_HARD }, dw[3] = { 34, 50, 34 }, dx = RX;
   for (int i = 0; i < 3; i++) { button(dx, y, dw[i], 20, did[i], dn[i], opts.diff == i, 1, true); dx += dw[i] + 7; }
+  y += 34;
+  drawText(RX, y, "LOOK", 1, false, WHITE); y += 11;
+  button(RX, y, 60, 20, B_COLOUR, "COLOUR", !monoLook, 1, true);
+  button(RX + 67, y, 50, 20, B_MONO, "1-BIT", monoLook, 1, true);
   y += 36;
   button(RX, y, RW - 3, 42, B_PLAY, upper(std::string("Play at ") + sname(*st)), false, 2, true); y += 54;
   button(RX, y, RW - 3, 24, B_TRAIN, "TRAINING", false, 1, true); y += 38;
@@ -1331,7 +1381,7 @@ static void drawMenu() {
 static void drawGameHud() {
   panels();
   // left: scoreboard
-  drawText(LX, 12, std::to_string(M->score) + "/" + std::to_string(M->wk), 3, true, WHITE);
+  drawText(LX, 12, std::to_string(M->score) + "/" + std::to_string(M->wk), 3, true, ACCENT);
   button(LPW - 34, 9, 22, 20, B_PAUSE, "II", false, 1, true, false);
   int y = 38;
   if (M->training) {
@@ -1375,7 +1425,7 @@ static void drawGameHud() {
 }
 static void modalBox(int y, int h) {
   int x = FX0 + 14, w = FX1 - FX0 - 28;
-  fillRect(x, y, w, h, BLACK); frameRect(x, y, w, h, 3, WHITE);
+  fillRect(x, y, w, h, NIGHT); frameRect(x, y, w, h, 3, WHITE);
 }
 static void drawPause() {
   int y = 120; modalBox(y, 104);
@@ -1416,7 +1466,9 @@ static SDL_GameController* gc = nullptr;
 #endif
 static uint32_t pixels[W * H];
 static void present() {
-  for (int i = 0; i < W * H; i++) pixels[i] = fb[i] ? 0xFFFFFFFFu : 0xFF000000u;
+  uint32_t lut[C_N];
+  for (int c = 0; c < C_N; c++) lut[c] = 0xFF000000u | (monoLook ? (PALETTE[c].mono ? 0xFFFFFFu : 0) : PALETTE[c].rgb);
+  for (int i = 0; i < W * H; i++) pixels[i] = lut[fb[i]];
   SDL_UpdateTexture(tex, nullptr, pixels, W * 4);
   SDL_SetRenderDrawColor(ren, 0, 0, 0, 255); SDL_RenderClear(ren);
   SDL_RenderCopy(ren, tex, nullptr, nullptr); SDL_RenderPresent(ren);
@@ -1472,17 +1524,21 @@ static void toCanvas(int wx, int wy, double& px, double& py) {
 }
 #endif
 
-// --dump DIR [--frames N] [--every N] [--demo] [--play|--train|--end|--pause]
+// --dump DIR [--frames N] [--every N] [--demo] [--play|--train|--end|--pause] [--mono]
 // [--ground I]: test run that writes PGM frames, an event log and a summary
 // to DIR, playing shots automatically with --demo. On the Switch the same
 // arguments are read from sdmc:/switch/OneBitCricket/autotest.txt, so the
 // shipped .nro can be tested in an emulator; without that file it never runs.
 static bool dumpMode = false, demo = false; static std::string dumpDir; static int dumpEvery = 30, maxFrames = 0;
 static void dumpFrame(int n) {
-  char name[512]; snprintf(name, sizeof name, "%s/f%05d.pgm", dumpDir.c_str(), n);
+  char name[512]; snprintf(name, sizeof name, "%s/f%05d.ppm", dumpDir.c_str(), n);
   FILE* f = fopen(name, "wb"); if (!f) return;
-  fprintf(f, "P5\n%d %d\n255\n", W, H);
-  std::vector<uint8_t> row(W * H); for (int i = 0; i < W * H; i++) row[i] = fb[i] ? 255 : 0;
+  fprintf(f, "P6\n%d %d\n255\n", W, H);
+  std::vector<uint8_t> row(W * H * 3);
+  for (int i = 0; i < W * H; i++) {
+    uint32_t c = monoLook ? (PALETTE[fb[i]].mono ? 0xFFFFFFu : 0) : PALETTE[fb[i]].rgb;
+    row[i * 3] = c >> 16; row[i * 3 + 1] = c >> 8 & 255; row[i * 3 + 2] = c & 255;
+  }
   fwrite(row.data(), 1, row.size(), f); fclose(f);
 }
 static void demoStep() {
@@ -1493,7 +1549,7 @@ static void demoStep() {
 }
 
 int main(int argc, char** argv) {
-  bool startTrain = false, startPlay = false, startEnd = false, startPause = false; int ground = 0;
+  bool startTrain = false, startPlay = false, startEnd = false, startPause = false, forceMono = false; int ground = 0;
   std::vector<std::string> args(argv + 1, argv + argc);
 #ifdef __SWITCH__
   if (FILE* af = fopen("sdmc:/switch/OneBitCricket/autotest.txt", "r")) {
@@ -1513,6 +1569,7 @@ int main(int argc, char** argv) {
     else if (a == "--train") startTrain = true;
     else if (a == "--end") startEnd = true;
     else if (a == "--pause") startPause = true;
+    else if (a == "--mono") forceMono = true;
   }
   if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_JOYSTICK | SDL_INIT_GAMECONTROLLER) < 0) { fprintf(stderr, "SDL_Init: %s\n", SDL_GetError()); return 1; }
   win = SDL_CreateWindow("1-Bit Cricket", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, 1280, 720, SDL_WINDOW_RESIZABLE);
@@ -1533,7 +1590,8 @@ int main(int argc, char** argv) {
     if (tlog) fprintf(tlog, "boot renderer=%s audio=%d joysticks=%d\n", ren ? ri.name : "none", adev ? 1 : 0, SDL_NumJoysticks());
   }
 
-  initPatterns(); initFont();
+  initPatterns(); initFont(); loadLook();
+  if (forceMono) monoLook = true;
   pickStadium(ground);
   cam.ox = (FX0 + FX1) / 2.0; cam.oy = H / 2.0; cam.visW = FX1 - FX0; cam.visH = H;
   CamT t0 = camTarget(); cam.x = t0.x; cam.y = t0.y; cam.s = t0.s;

@@ -33,7 +33,7 @@ To try the port on a PC, run `make -C switch -f Makefile.desktop` (needs SDL2) a
 
 **Install:** copy `OneBitCricket.nro` to `sdmc:/switch/` and open it from the Homebrew Menu. Launch the
 Homebrew Menu by holding R while opening a game rather than from the Album applet: applet mode has less memory.
-Records are saved to `sdmc:/switch/OneBitCricket/records.txt`.
+Records are saved to `sdmc:/switch/OneBitCricket/records.txt`, and the Look choice (Colour or 1-Bit, in the menu) to `look.txt` beside it.
 
 | Control | Action |
 | --- | --- |

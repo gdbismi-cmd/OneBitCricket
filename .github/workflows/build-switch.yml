@@ -78,7 +78,7 @@ jobs:
           d="$HOME/.config/Ryujinx/sdcard/switch/OneBitCricket/dump"
           if [ -d "$d" ]; then
             mkdir -p results/dump
-            for f in "$d"/*.pgm; do [ -f "$f" ] && pnmtopng "$f" > "results/dump/$(basename "$f" .pgm).png"; done
+            for f in "$d"/*.ppm; do [ -f "$f" ] && pnmtopng "$f" > "results/dump/$(basename "$f" .ppm).png"; done
             cp "$d"/*.txt "$d"/*.log results/dump/ 2>/dev/null || true
             echo "--- summary"; cat "$d/summary.txt" 2>/dev/null || echo "(no summary)"
             echo "--- events"; head -40 "$d/events.log" 2>/dev/null || true
